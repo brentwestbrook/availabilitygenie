@@ -3,7 +3,7 @@
 
 const ALGORITHM = 'AES-GCM';
 
-// Get encryption key from environment or generate a deterministic one from service role key
+// Get encryption key from environment or derive from service role key
 async function getEncryptionKey(): Promise<CryptoKey> {
   const keyString = Deno.env.get('TOKEN_ENCRYPTION_KEY');
   
@@ -12,7 +12,7 @@ async function getEncryptionKey(): Promise<CryptoKey> {
     const keyData = hexToBytes(keyString);
     return await crypto.subtle.importKey(
       'raw',
-      keyData,
+      keyData.buffer as ArrayBuffer,
       { name: ALGORITHM },
       false,
       ['encrypt', 'decrypt']
@@ -24,7 +24,7 @@ async function getEncryptionKey(): Promise<CryptoKey> {
   const encoder = new TextEncoder();
   const keyMaterial = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(serviceRoleKey),
+    encoder.encode(serviceRoleKey).buffer as ArrayBuffer,
     { name: 'PBKDF2' },
     false,
     ['deriveKey']
@@ -68,7 +68,7 @@ export async function encryptToken(token: string): Promise<EncryptedToken> {
   const iv = crypto.getRandomValues(new Uint8Array(12)); // 96-bit IV for GCM
   
   const encryptedData = await crypto.subtle.encrypt(
-    { name: ALGORITHM, iv },
+    { name: ALGORITHM, iv: iv.buffer as ArrayBuffer },
     key,
     encoder.encode(token)
   );
@@ -99,15 +99,15 @@ export async function decryptToken(encryptedToken: EncryptedToken): Promise<stri
   fullCiphertext.set(tag, ciphertext.length);
   
   const decryptedData = await crypto.subtle.decrypt(
-    { name: ALGORITHM, iv },
+    { name: ALGORITHM, iv: iv.buffer as ArrayBuffer },
     key,
-    fullCiphertext
+    fullCiphertext.buffer as ArrayBuffer
   );
   
   return decoder.decode(decryptedData);
 }
 
 // Helper to check if a token is encrypted (has the encrypted format)
-export function isEncryptedFormat(accessToken: string, accessTokenIv: string | null): boolean {
+export function isEncryptedFormat(accessTokenIv: string | null): boolean {
   return accessTokenIv !== null && accessTokenIv.length > 0;
 }

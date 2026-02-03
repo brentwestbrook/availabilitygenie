@@ -17,33 +17,45 @@ export type Database = {
       calendar_connections: {
         Row: {
           access_token: string
+          access_token_iv: string | null
+          access_token_tag: string | null
           created_at: string
           email: string | null
           id: string
           provider: string
           refresh_token: string | null
+          refresh_token_iv: string | null
+          refresh_token_tag: string | null
           token_expires_at: string | null
           updated_at: string
           user_id: string
         }
         Insert: {
           access_token: string
+          access_token_iv?: string | null
+          access_token_tag?: string | null
           created_at?: string
           email?: string | null
           id?: string
           provider: string
           refresh_token?: string | null
+          refresh_token_iv?: string | null
+          refresh_token_tag?: string | null
           token_expires_at?: string | null
           updated_at?: string
           user_id: string
         }
         Update: {
           access_token?: string
+          access_token_iv?: string | null
+          access_token_tag?: string | null
           created_at?: string
           email?: string | null
           id?: string
           provider?: string
           refresh_token?: string | null
+          refresh_token_iv?: string | null
+          refresh_token_tag?: string | null
           token_expires_at?: string | null
           updated_at?: string
           user_id?: string
