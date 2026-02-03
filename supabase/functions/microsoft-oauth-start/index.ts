@@ -6,6 +6,28 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
 };
 
+// Pattern-based origin validation to support all Lovable preview URL formats
+function isAllowedOrigin(origin: string): boolean {
+  if (!origin) return false;
+  
+  // Check custom FRONTEND_URL first
+  const frontendUrl = Deno.env.get('FRONTEND_URL');
+  if (frontendUrl && origin === frontendUrl) return true;
+  
+  const ALLOWED_PATTERNS = [
+    // Published domain
+    /^https:\/\/availabilitygenie\.lovable\.app$/,
+    // Local development
+    /^http:\/\/localhost:\d+$/,
+    // Lovable preview URLs (various formats)
+    /^https:\/\/[a-f0-9-]+\.lovable\.app$/,
+    /^https:\/\/[a-f0-9-]+\.lovableproject\.com$/,
+    /^https:\/\/id-preview--[a-f0-9-]+\.lovable\.app$/,
+  ];
+  
+  return ALLOWED_PATTERNS.some(pattern => pattern.test(origin));
+}
+
 serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response(null, { headers: corsHeaders });
@@ -15,6 +37,7 @@ serve(async (req) => {
     // Validate user authentication
     const authHeader = req.headers.get('Authorization');
     if (!authHeader?.startsWith('Bearer ')) {
+      console.log('Microsoft OAuth start: Missing or invalid auth header');
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -30,6 +53,7 @@ serve(async (req) => {
     const { data: { user }, error: userError } = await supabase.auth.getUser();
     
     if (userError || !user) {
+      console.log('Microsoft OAuth start: User authentication failed', { error: userError?.message });
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -40,7 +64,7 @@ serve(async (req) => {
 
     const clientId = Deno.env.get('MICROSOFT_CLIENT_ID');
     if (!clientId) {
-      console.error('MICROSOFT_CLIENT_ID not configured');
+      console.error('Microsoft OAuth start: MICROSOFT_CLIENT_ID not configured');
       return new Response(
         JSON.stringify({ error: 'Service temporarily unavailable' }),
         { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -49,21 +73,9 @@ serve(async (req) => {
 
     const { origin } = await req.json();
 
-    // Validate origin against allowlist to prevent open redirect attacks
-    const ALLOWED_ORIGINS = [
-      Deno.env.get('FRONTEND_URL') || '',
-      // Preview domains
-      'https://id-preview--599645c8-f274-42a2-bfb6-3180155b3d75.lovable.app',
-      'https://599645c8-f274-42a2-bfb6-3180155b3d75.lovableproject.com',
-      // Published domain
-      'https://availabilitygenie.lovable.app',
-      // Local development
-      'http://localhost:5173',
-      'http://localhost:3000',
-      'http://localhost:8080',
-    ].filter(Boolean);
-
-    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+    // Validate origin using pattern matching
+    if (!isAllowedOrigin(origin)) {
+      console.log('Microsoft OAuth start: Origin rejected', { origin });
       return new Response(
         JSON.stringify({ error: 'Invalid origin' }),
         { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -71,6 +83,14 @@ serve(async (req) => {
     }
     
     const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/microsoft-oauth-callback`;
+    
+    // Debug logging
+    console.log('Microsoft OAuth start request:', {
+      origin,
+      userId,
+      hasClientId: !!clientId,
+      redirectUri,
+    });
     
     const scopes = [
       'openid',
@@ -91,12 +111,14 @@ serve(async (req) => {
     authUrl.searchParams.set('response_mode', 'query');
     authUrl.searchParams.set('state', state);
 
+    console.log('Microsoft OAuth start: Returning auth URL successfully');
+
     return new Response(
       JSON.stringify({ url: authUrl.toString() }),
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
-    console.error('OAuth start error:', error);
+    console.error('Microsoft OAuth start error:', error);
     return new Response(
       JSON.stringify({ error: 'Unable to start authentication. Please try again.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
