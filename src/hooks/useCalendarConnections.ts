@@ -1,16 +1,10 @@
 import { useState, useCallback, useEffect } from 'react';
 import { CalendarConnection, CalendarEvent } from '@/types/calendar';
 import { supabase } from '@/integrations/supabase/client';
-
-interface StoredConnection {
-  provider: 'google' | 'microsoft';
-  access_token: string;
-  refresh_token?: string;
-  token_expires_at?: string;
-  email: string;
-}
+import { useAuth } from '@/hooks/useAuth';
 
 export function useCalendarConnections() {
+  const { user, session } = useAuth();
   const [connections, setConnections] = useState<CalendarConnection[]>([
     { provider: 'google', connected: false },
     { provider: 'microsoft', connected: false },
@@ -19,89 +13,72 @@ export function useCalendarConnections() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Load connections from database when user is authenticated
+  const loadConnections = useCallback(async () => {
+    if (!user) return;
+
+    try {
+      const { data, error: dbError } = await supabase
+        .from('calendar_connections')
+        .select('provider, email')
+        .eq('user_id', user.id);
+
+      if (dbError) {
+        console.error('Failed to load connections:', dbError);
+        return;
+      }
+
+      setConnections(prev =>
+        prev.map(c => {
+          const match = data?.find(d => d.provider === c.provider);
+          if (match) {
+            return { ...c, connected: true, email: match.email ?? undefined };
+          }
+          return { ...c, connected: false, email: undefined };
+        })
+      );
+
+      // Fetch events for connected calendars
+      if (data && data.length > 0) {
+        for (const conn of data) {
+          await fetchEventsForProvider(conn.provider as 'google' | 'microsoft');
+        }
+      }
+    } catch (e) {
+      console.error('Failed to load connections:', e);
+    }
+  }, [user]);
+
   // Check for OAuth callback on mount
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     
-    const googleConnection = params.get('google_connection');
-    const microsoftConnection = params.get('microsoft_connection');
-    const errorParam = params.get('error');
+    const oauthSuccess = params.get('oauth_success');
+    const oauthError = params.get('oauth_error');
 
-    if (errorParam) {
-      setError(decodeURIComponent(errorParam));
+    if (oauthError) {
+      setError(decodeURIComponent(oauthError));
       window.history.replaceState({}, '', window.location.pathname);
       return;
     }
 
-    if (googleConnection) {
-      try {
-        const data: StoredConnection = JSON.parse(atob(googleConnection));
-        handleConnectionComplete(data);
-      } catch (e) {
-        setError('Failed to process Google connection');
-      }
+    if (oauthSuccess) {
+      // Reload connections from database after successful OAuth
+      loadConnections();
       window.history.replaceState({}, '', window.location.pathname);
     }
+  }, [loadConnections]);
 
-    if (microsoftConnection) {
-      try {
-        const data: StoredConnection = JSON.parse(atob(microsoftConnection));
-        handleConnectionComplete(data);
-      } catch (e) {
-        setError('Failed to process Microsoft connection');
-      }
-      window.history.replaceState({}, '', window.location.pathname);
+  // Load connections when user changes
+  useEffect(() => {
+    if (user) {
+      loadConnections();
     }
+  }, [user, loadConnections]);
 
-    // Load stored connections from localStorage
-    loadStoredConnections();
-  }, []);
+  const fetchEventsForProvider = useCallback(async (provider: 'google' | 'microsoft') => {
+    if (!session) return;
 
-  const loadStoredConnections = useCallback(() => {
-    const stored = localStorage.getItem('calendar_connections');
-    if (stored) {
-      try {
-        const storedConnections: StoredConnection[] = JSON.parse(stored);
-        setConnections(prev =>
-          prev.map(c => {
-            const match = storedConnections.find(s => s.provider === c.provider);
-            if (match) {
-              return { ...c, connected: true, email: match.email };
-            }
-            return c;
-          })
-        );
-        // Fetch events for connected calendars
-        storedConnections.forEach(conn => {
-          fetchEventsForProvider(conn);
-        });
-      } catch (e) {
-        console.error('Failed to load stored connections:', e);
-      }
-    }
-  }, []);
-
-  const handleConnectionComplete = useCallback(async (data: StoredConnection) => {
-    // Store connection in localStorage (in production, store in database with user auth)
-    const stored = localStorage.getItem('calendar_connections');
-    let connections: StoredConnection[] = stored ? JSON.parse(stored) : [];
-    connections = connections.filter(c => c.provider !== data.provider);
-    connections.push(data);
-    localStorage.setItem('calendar_connections', JSON.stringify(connections));
-
-    setConnections(prev =>
-      prev.map(c =>
-        c.provider === data.provider
-          ? { ...c, connected: true, email: data.email }
-          : c
-      )
-    );
-
-    // Fetch events
-    await fetchEventsForProvider(data);
-  }, []);
-
-  const fetchEventsForProvider = useCallback(async (connection: StoredConnection) => {
     setIsLoading(true);
     try {
       const now = new Date();
@@ -114,8 +91,7 @@ export function useCalendarConnections() {
 
       const { data, error } = await supabase.functions.invoke('calendar-events', {
         body: {
-          provider: connection.provider,
-          accessToken: connection.access_token,
+          provider,
           startDate: startOfWeek.toISOString(),
           endDate: endOfWeek.toISOString(),
         },
@@ -128,22 +104,27 @@ export function useCalendarConnections() {
         title: e.title,
         start: new Date(e.start),
         end: new Date(e.end),
-        source: connection.provider,
+        source: provider,
       }));
 
       setEvents(prev => {
-        const filtered = prev.filter(e => e.source !== connection.provider);
+        const filtered = prev.filter(e => e.source !== provider);
         return [...filtered, ...newEvents];
       });
     } catch (e) {
-      console.error(`Failed to fetch ${connection.provider} events:`, e);
-      setError(`Failed to fetch ${connection.provider} events`);
+      console.error(`Failed to fetch ${provider} events:`, e);
+      setError(`Failed to fetch ${provider} events`);
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [session]);
 
   const connectGoogle = useCallback(async () => {
+    if (!session) {
+      setError('Please sign in first');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -161,9 +142,14 @@ export function useCalendarConnections() {
       setError('Failed to connect to Google Calendar');
       setIsLoading(false);
     }
-  }, []);
+  }, [session]);
 
   const connectMicrosoft = useCallback(async () => {
+    if (!session) {
+      setError('Please sign in first');
+      return;
+    }
+
     setIsLoading(true);
     setError(null);
 
@@ -181,43 +167,56 @@ export function useCalendarConnections() {
       setError('Failed to connect to Microsoft Outlook');
       setIsLoading(false);
     }
-  }, []);
+  }, [session]);
 
-  const disconnectProvider = useCallback((provider: 'google' | 'microsoft') => {
-    // Remove from localStorage
-    const stored = localStorage.getItem('calendar_connections');
-    if (stored) {
-      const connections: StoredConnection[] = JSON.parse(stored);
-      const filtered = connections.filter(c => c.provider !== provider);
-      localStorage.setItem('calendar_connections', JSON.stringify(filtered));
+  const disconnectProvider = useCallback(async (provider: 'google' | 'microsoft') => {
+    if (!user) return;
+
+    try {
+      const { error: dbError } = await supabase
+        .from('calendar_connections')
+        .delete()
+        .eq('user_id', user.id)
+        .eq('provider', provider);
+
+      if (dbError) {
+        console.error('Failed to disconnect:', dbError);
+        setError('Failed to disconnect calendar');
+        return;
+      }
+
+      setConnections(prev =>
+        prev.map(c =>
+          c.provider === provider
+            ? { ...c, connected: false, email: undefined }
+            : c
+        )
+      );
+      setEvents(prev => prev.filter(e => e.source !== provider));
+    } catch (e) {
+      console.error('Failed to disconnect:', e);
+      setError('Failed to disconnect calendar');
     }
-
-    setConnections(prev =>
-      prev.map(c =>
-        c.provider === provider
-          ? { ...c, connected: false, email: undefined }
-          : c
-      )
-    );
-    setEvents(prev => prev.filter(e => e.source !== provider));
-  }, []);
+  }, [user]);
 
   const refreshEvents = useCallback(async () => {
+    if (!user) return;
+
     setIsLoading(true);
     setError(null);
 
     try {
-      const stored = localStorage.getItem('calendar_connections');
-      if (stored) {
-        const storedConnections: StoredConnection[] = JSON.parse(stored);
-        await Promise.all(storedConnections.map(conn => fetchEventsForProvider(conn)));
-      }
+      const connectedProviders = connections
+        .filter(c => c.connected)
+        .map(c => c.provider);
+
+      await Promise.all(connectedProviders.map(provider => fetchEventsForProvider(provider)));
     } catch (err) {
       setError('Failed to refresh events. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  }, [fetchEventsForProvider]);
+  }, [user, connections, fetchEventsForProvider]);
 
   const isGoogleConnected = connections.find(c => c.provider === 'google')?.connected ?? false;
   const isMicrosoftConnected = connections.find(c => c.provider === 'microsoft')?.connected ?? false;
