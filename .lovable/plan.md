@@ -1,136 +1,71 @@
 
 
-# Fix Google and Microsoft Calendar Connection Errors
+# Fix Calendar Connection Errors - CORS Headers
 
-## Problem Summary
+## Root Cause
 
-The calendar connections are failing for two main reasons:
-1. The `calendar-events` edge function uses `supabase.auth.getClaims(token)` which is not the correct API
-2. Token refresh logic is missing - expired tokens cause API failures
+The edge functions are failing due to **incomplete CORS headers**. The Supabase JS client sends additional headers (`x-supabase-client-platform`, `x-supabase-client-platform-version`, etc.) that are not included in the `Access-Control-Allow-Headers` list. This causes the CORS preflight request to fail, preventing the OAuth start functions from being called.
 
-The edge function logs show:
-```
-Error: Failed to fetch Google events
-```
+## Evidence
 
-And the `calendar_connections` database table is empty, suggesting either OAuth callbacks are failing or tokens are not being stored properly.
+- When testing the edge function directly, it returns a 401 error
+- The `calendar_connections` table is empty - OAuth callbacks never complete
+- No logs are recorded for actual OAuth operations, only boot logs
+- All edge functions have the same incomplete CORS headers
 
-## Solution Overview
+## Solution
 
-| Issue | Fix |
-|-------|-----|
-| `getClaims()` API not working | Replace with `getUser()` which is the standard method |
-| Token expiration causing API failures | Add token refresh logic before making API calls |
-| Better error logging | Add detailed logging to diagnose issues |
+Update the CORS headers in all three edge functions to include the required Supabase client headers.
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `supabase/functions/calendar-events/index.ts` | Fix authentication method and add token refresh |
+| `supabase/functions/google-oauth-start/index.ts` | Update CORS headers |
+| `supabase/functions/microsoft-oauth-start/index.ts` | Update CORS headers |
+| `supabase/functions/calendar-events/index.ts` | Update CORS headers |
 
 ## Implementation Details
 
-### 1. Replace getClaims with getUser
+### Update CORS Headers
 
-The current code:
+Change from:
 ```typescript
-const token = authHeader.replace('Bearer ', '');
-const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
-const userId = claimsData.claims.sub;
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
 ```
 
-Should be replaced with:
+To:
 ```typescript
-const { data: { user }, error: userError } = await supabase.auth.getUser();
-if (userError || !user) {
-  return new Response(
-    JSON.stringify({ error: 'Unauthorized' }),
-    { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-  );
-}
-const userId = user.id;
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+};
 ```
 
-This uses the standard `getUser()` method which automatically works with the Authorization header passed in the client configuration.
+This change needs to be applied to all three edge functions:
+1. `google-oauth-start/index.ts` (line 4-7)
+2. `microsoft-oauth-start/index.ts` (line 4-7)
+3. `calendar-events/index.ts` (line 5-8)
 
-### 2. Add Token Refresh Logic
+## Why This Fixes The Issue
 
-Before making API calls, check if the access token has expired and refresh it if needed:
+The Supabase JS client automatically includes telemetry/platform headers in every request. When the browser makes a preflight OPTIONS request, it checks if these headers are allowed. If any header is not in the `Access-Control-Allow-Headers` list, the preflight fails and the main request is never sent.
 
-```typescript
-async function refreshGoogleToken(refreshToken: string): Promise<{
-  access_token: string;
-  expires_in: number;
-} | null> {
-  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
-  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
-  
-  const response = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      client_id: clientId!,
-      client_secret: clientSecret!,
-      refresh_token: refreshToken,
-      grant_type: 'refresh_token',
-    }),
-  });
-  
-  if (!response.ok) return null;
-  return response.json();
-}
-```
+By adding the missing headers, the preflight will succeed and the actual OAuth start request will go through.
 
-Similar logic for Microsoft tokens.
+## Deployment
 
-### 3. Add Better Error Logging
+After updating the files, all three edge functions will need to be redeployed for the changes to take effect.
 
-Add detailed logging before throwing errors to help diagnose issues:
+## Testing
 
-```typescript
-const response = await fetch(url.toString(), {
-  headers: { Authorization: `Bearer ${accessToken}` },
-});
-
-if (!response.ok) {
-  const errorBody = await response.text();
-  console.error(`Google Calendar API error: ${response.status} - ${errorBody}`);
-  throw new Error(`Failed to fetch Google events: ${response.status}`);
-}
-```
-
-### 4. Check Token Expiry Before API Calls
-
-```typescript
-// Check if token is expired or will expire soon (5 minute buffer)
-const tokenExpiresAt = new Date(connection.token_expires_at);
-const now = new Date();
-const bufferMs = 5 * 60 * 1000; // 5 minutes
-
-if (tokenExpiresAt.getTime() - now.getTime() < bufferMs) {
-  // Token expired or expiring soon, refresh it
-  const newTokens = await refreshGoogleToken(decryptedRefreshToken);
-  if (newTokens) {
-    // Update tokens in database
-    // Use new access token
-  }
-}
-```
-
-## Technical Notes
-
-- **Authentication**: Using `getUser()` without parameters works because the Supabase client is already configured with the Authorization header
-- **Token Refresh**: Google refresh tokens don't expire (unless revoked), so we can always refresh if we have one stored
-- **Error Handling**: Better error messages will help identify the root cause if issues persist
-
-## Testing Notes
-
-After deploying, test by:
-1. Disconnecting any existing calendar connections
-2. Re-connecting Google Calendar
-3. Verifying the OAuth popup completes successfully
-4. Checking that events appear on the calendar
-
-If issues persist, check the edge function logs for detailed error messages.
+After deployment:
+1. Log in to the app
+2. Click the "Connect" button for Google Calendar
+3. Verify the OAuth popup opens (instead of showing an error immediately)
+4. Complete the OAuth flow
+5. Verify events appear on the calendar
 
