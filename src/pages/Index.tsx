@@ -1,11 +1,128 @@
-// Update this page (the content is just a fallback if you fail to update the page)
+import { useState, useMemo } from 'react';
+import { startOfWeek, addDays } from 'date-fns';
+import { CalendarHeader } from '@/components/calendar/CalendarHeader';
+import { CalendarGrid } from '@/components/calendar/CalendarGrid';
+import { ConnectionPanel } from '@/components/calendar/ConnectionPanel';
+import { AvailabilityPanel } from '@/components/calendar/AvailabilityPanel';
+import { InstructionsBanner } from '@/components/calendar/InstructionsBanner';
+import { useCalendarSelection } from '@/hooks/useCalendarSelection';
+import { useCalendarConnections } from '@/hooks/useCalendarConnections';
+import { useAvailabilityText } from '@/hooks/useAvailabilityText';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { AlertCircle } from 'lucide-react';
 
 const Index = () => {
+  const [weekStart, setWeekStart] = useState(() => 
+    startOfWeek(new Date(), { weekStartsOn: 0 })
+  );
+
+  const {
+    connections,
+    events,
+    isLoading,
+    error,
+    connectGoogle,
+    connectMicrosoft,
+    disconnectProvider,
+    refreshEvents,
+  } = useCalendarConnections();
+
+  const {
+    selectedSlots,
+    handleMouseDown,
+    handleMouseMove,
+    handleMouseUp,
+    clearSelections,
+    removeSelection,
+    getSelectionRange,
+  } = useCalendarSelection(weekStart);
+
+  const {
+    availabilityText,
+    copyToClipboard,
+  } = useAvailabilityText(selectedSlots);
+
+  const selectionRange = getSelectionRange();
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background">
-      <div className="text-center">
-        <h1 className="mb-4 text-4xl font-bold">Welcome to Your Blank App</h1>
-        <p className="text-xl text-muted-foreground">Start building your amazing project here!</p>
+    <div className="min-h-screen bg-background p-6">
+      <div className="max-w-7xl mx-auto space-y-6">
+        {/* Header */}
+        <div className="text-center">
+          <h1 className="text-3xl font-bold text-foreground mb-2">
+            Calendar Availability
+          </h1>
+          <p className="text-muted-foreground">
+            Share your free time in natural language
+          </p>
+        </div>
+
+        {/* Instructions */}
+        <InstructionsBanner />
+
+        {/* Error state */}
+        {error && (
+          <Alert variant="destructive">
+            <AlertCircle className="h-4 w-4" />
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+
+        {/* Main content */}
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* Sidebar */}
+          <div className="lg:col-span-1 space-y-4">
+            <ConnectionPanel
+              connections={connections}
+              isLoading={isLoading}
+              onConnectGoogle={connectGoogle}
+              onConnectMicrosoft={connectMicrosoft}
+              onDisconnect={disconnectProvider}
+            />
+            <AvailabilityPanel
+              selectedSlots={selectedSlots}
+              availabilityText={availabilityText}
+              onCopy={copyToClipboard}
+              onClear={clearSelections}
+              onRemoveSlot={removeSelection}
+            />
+          </div>
+
+          {/* Calendar */}
+          <div className="lg:col-span-3">
+            <CalendarHeader
+              weekStart={weekStart}
+              onWeekChange={setWeekStart}
+              onRefresh={refreshEvents}
+              isLoading={isLoading}
+            />
+            <CalendarGrid
+              weekStart={weekStart}
+              events={events}
+              selectedSlots={selectedSlots}
+              selectionRange={selectionRange}
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseUp={handleMouseUp}
+            />
+
+            {/* Legend */}
+            <div className="flex items-center gap-6 mt-4 text-sm text-muted-foreground justify-center">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded bg-google" />
+                <span>Google Calendar</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded bg-microsoft" />
+                <span>Microsoft Outlook</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded bg-selection" />
+                <span>Selected free time</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

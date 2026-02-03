@@ -38,20 +38,23 @@ All colors MUST be HSL.
 
     --radius: 0.5rem;
 
+    /* Calendar specific colors */
+    --google-event: 217 91% 60%;
+    --google-event-foreground: 0 0% 100%;
+    --microsoft-event: 271 81% 56%;
+    --microsoft-event-foreground: 0 0% 100%;
+    --selection: 142 76% 36%;
+    --selection-foreground: 0 0% 100%;
+    --grid-line: 214.3 31.8% 91.4%;
+    --time-label: 215.4 16.3% 46.9%;
+
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -83,6 +86,17 @@ All colors MUST be HSL.
     --border: 217.2 32.6% 17.5%;
     --input: 217.2 32.6% 17.5%;
     --ring: 212.7 26.8% 83.9%;
+
+    /* Calendar specific colors - dark mode */
+    --google-event: 217 91% 65%;
+    --google-event-foreground: 0 0% 100%;
+    --microsoft-event: 271 81% 65%;
+    --microsoft-event-foreground: 0 0% 100%;
+    --selection: 142 76% 42%;
+    --selection-foreground: 0 0% 100%;
+    --grid-line: 217.2 32.6% 20%;
+    --time-label: 215 20.2% 65.1%;
+
     --sidebar-background: 240 5.9% 10%;
     --sidebar-foreground: 240 4.8% 95.9%;
     --sidebar-primary: 224.3 76.3% 48%;
