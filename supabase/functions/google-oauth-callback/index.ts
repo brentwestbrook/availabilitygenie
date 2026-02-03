@@ -9,9 +9,11 @@ serve(async (req) => {
     const error = url.searchParams.get('error');
 
     let origin = '';
+    let userId = '';
     try {
       const stateData = JSON.parse(atob(state || ''));
       origin = stateData.origin || '';
+      userId = stateData.userId || '';
     } catch {
       origin = '';
     }
@@ -19,14 +21,21 @@ serve(async (req) => {
     if (error) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?error=${encodeURIComponent(error)}` },
+        headers: { Location: `${origin}?oauth_error=${encodeURIComponent(error)}` },
       });
     }
 
     if (!code) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?error=no_code` },
+        headers: { Location: `${origin}?oauth_error=no_code` },
+      });
+    }
+
+    if (!userId) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${origin}?oauth_error=no_user` },
       });
     }
 
@@ -52,7 +61,7 @@ serve(async (req) => {
     if (tokens.error) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?error=${encodeURIComponent(tokens.error)}` },
+        headers: { Location: `${origin}?oauth_error=${encodeURIComponent(tokens.error)}` },
       });
     }
 
@@ -62,28 +71,44 @@ serve(async (req) => {
     });
     const userInfo = await userInfoResponse.json();
 
-    // Create connection record with a temporary token that frontend will use
-    const connectionData = {
-      provider: 'google',
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-      email: userInfo.email,
-    };
+    // Store tokens directly in the database using service role
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Encode the connection data to pass to frontend
-    const encodedData = btoa(JSON.stringify(connectionData));
+    // Upsert the connection (update if exists, insert if not)
+    const { error: dbError } = await supabase
+      .from('calendar_connections')
+      .upsert({
+        user_id: userId,
+        provider: 'google',
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+        email: userInfo.email,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,provider',
+      });
 
+    if (dbError) {
+      console.error('Database error:', dbError);
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${origin}?oauth_error=database_error` },
+      });
+    }
+
+    // Redirect with success indicator only (no tokens in URL)
     return new Response(null, {
       status: 302,
-      headers: { Location: `${origin}?google_connection=${encodedData}` },
+      headers: { Location: `${origin}?oauth_success=google` },
     });
   } catch (error: unknown) {
     console.error('Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(null, {
       status: 302,
-      headers: { Location: `/?error=${encodeURIComponent(message)}` },
+      headers: { Location: `/?oauth_error=server_error` },
     });
   }
 });

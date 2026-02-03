@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 serve(async (req) => {
   try {
@@ -9,9 +10,11 @@ serve(async (req) => {
     const errorDescription = url.searchParams.get('error_description');
 
     let origin = '';
+    let userId = '';
     try {
       const stateData = JSON.parse(atob(state || ''));
       origin = stateData.origin || '';
+      userId = stateData.userId || '';
     } catch {
       origin = '';
     }
@@ -19,14 +22,21 @@ serve(async (req) => {
     if (error) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?error=${encodeURIComponent(errorDescription || error)}` },
+        headers: { Location: `${origin}?oauth_error=${encodeURIComponent(errorDescription || error)}` },
       });
     }
 
     if (!code) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?error=no_code` },
+        headers: { Location: `${origin}?oauth_error=no_code` },
+      });
+    }
+
+    if (!userId) {
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${origin}?oauth_error=no_user` },
       });
     }
 
@@ -52,7 +62,7 @@ serve(async (req) => {
     if (tokens.error) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?error=${encodeURIComponent(tokens.error_description || tokens.error)}` },
+        headers: { Location: `${origin}?oauth_error=${encodeURIComponent(tokens.error_description || tokens.error)}` },
       });
     }
 
@@ -62,28 +72,44 @@ serve(async (req) => {
     });
     const userInfo = await userInfoResponse.json();
 
-    // Create connection record
-    const connectionData = {
-      provider: 'microsoft',
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
-      email: userInfo.mail || userInfo.userPrincipalName,
-    };
+    // Store tokens directly in the database using service role
+    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Encode the connection data to pass to frontend
-    const encodedData = btoa(JSON.stringify(connectionData));
+    // Upsert the connection (update if exists, insert if not)
+    const { error: dbError } = await supabase
+      .from('calendar_connections')
+      .upsert({
+        user_id: userId,
+        provider: 'microsoft',
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
+        email: userInfo.mail || userInfo.userPrincipalName,
+        updated_at: new Date().toISOString(),
+      }, {
+        onConflict: 'user_id,provider',
+      });
 
+    if (dbError) {
+      console.error('Database error:', dbError);
+      return new Response(null, {
+        status: 302,
+        headers: { Location: `${origin}?oauth_error=database_error` },
+      });
+    }
+
+    // Redirect with success indicator only (no tokens in URL)
     return new Response(null, {
       status: 302,
-      headers: { Location: `${origin}?microsoft_connection=${encodedData}` },
+      headers: { Location: `${origin}?oauth_success=microsoft` },
     });
   } catch (error: unknown) {
     console.error('Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(null, {
       status: 302,
-      headers: { Location: `/?error=${encodeURIComponent(message)}` },
+      headers: { Location: `/?oauth_error=server_error` },
     });
   }
 });
