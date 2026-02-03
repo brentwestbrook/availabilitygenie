@@ -57,6 +57,21 @@ export default {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        // Calendar specific colors
+        google: {
+          DEFAULT: "hsl(var(--google-event))",
+          foreground: "hsl(var(--google-event-foreground))",
+        },
+        microsoft: {
+          DEFAULT: "hsl(var(--microsoft-event))",
+          foreground: "hsl(var(--microsoft-event-foreground))",
+        },
+        selection: {
+          DEFAULT: "hsl(var(--selection))",
+          foreground: "hsl(var(--selection-foreground))",
+        },
+        "grid-line": "hsl(var(--grid-line))",
+        "time-label": "hsl(var(--time-label))",
       },
       borderRadius: {
         lg: "var(--radius)",
