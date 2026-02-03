@@ -20,6 +20,12 @@ export interface CalendarConnection {
 
 export interface SelectionState {
   isSelecting: boolean;
-  startSlot: { day: number; hour: number } | null;
-  currentSlot: { day: number; hour: number } | null;
+  startSlot: { day: number; slotIndex: number } | null;
+  currentSlot: { day: number; slotIndex: number } | null;
 }
+
+// 30-minute slot configuration
+export const SLOT_DURATION_MINUTES = 30;
+export const START_HOUR = 7;
+export const END_HOUR = 20;
+export const SLOTS_PER_HOUR = 60 / SLOT_DURATION_MINUTES;

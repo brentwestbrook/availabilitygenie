@@ -1,6 +1,6 @@
 import { useState, useCallback } from 'react';
-import { TimeSlot, SelectionState } from '@/types/calendar';
-import { addDays, startOfWeek, setHours, setMinutes } from 'date-fns';
+import { TimeSlot, SelectionState, SLOT_DURATION_MINUTES, START_HOUR, SLOTS_PER_HOUR } from '@/types/calendar';
+import { addDays, addMinutes, setHours, setMinutes } from 'date-fns';
 
 export function useCalendarSelection(weekStart: Date) {
   const [selectedSlots, setSelectedSlots] = useState<TimeSlot[]>([]);
@@ -10,24 +10,26 @@ export function useCalendarSelection(weekStart: Date) {
     currentSlot: null,
   });
 
-  const getDateFromSlot = useCallback((day: number, hour: number): Date => {
+  const getDateFromSlot = useCallback((day: number, slotIndex: number): Date => {
     const date = addDays(weekStart, day);
-    return setMinutes(setHours(date, hour), 0);
+    const hour = START_HOUR + Math.floor(slotIndex / SLOTS_PER_HOUR);
+    const minutes = (slotIndex % SLOTS_PER_HOUR) * SLOT_DURATION_MINUTES;
+    return setMinutes(setHours(date, hour), minutes);
   }, [weekStart]);
 
-  const handleMouseDown = useCallback((day: number, hour: number) => {
+  const handleMouseDown = useCallback((day: number, slotIndex: number) => {
     setSelectionState({
       isSelecting: true,
-      startSlot: { day, hour },
-      currentSlot: { day, hour },
+      startSlot: { day, slotIndex },
+      currentSlot: { day, slotIndex },
     });
   }, []);
 
-  const handleMouseMove = useCallback((day: number, hour: number) => {
+  const handleMouseMove = useCallback((day: number, slotIndex: number) => {
     if (selectionState.isSelecting && selectionState.startSlot?.day === day) {
       setSelectionState(prev => ({
         ...prev,
-        currentSlot: { day, hour },
+        currentSlot: { day, slotIndex },
       }));
     }
   }, [selectionState.isSelecting, selectionState.startSlot?.day]);
@@ -35,13 +37,13 @@ export function useCalendarSelection(weekStart: Date) {
   const handleMouseUp = useCallback(() => {
     if (selectionState.isSelecting && selectionState.startSlot && selectionState.currentSlot) {
       const { day } = selectionState.startSlot;
-      const startHour = Math.min(selectionState.startSlot.hour, selectionState.currentSlot.hour);
-      const endHour = Math.max(selectionState.startSlot.hour, selectionState.currentSlot.hour) + 1;
+      const startSlotIndex = Math.min(selectionState.startSlot.slotIndex, selectionState.currentSlot.slotIndex);
+      const endSlotIndex = Math.max(selectionState.startSlot.slotIndex, selectionState.currentSlot.slotIndex) + 1;
 
       const newSlot: TimeSlot = {
-        id: `${day}-${startHour}-${endHour}-${Date.now()}`,
-        start: getDateFromSlot(day, startHour),
-        end: getDateFromSlot(day, endHour),
+        id: `${day}-${startSlotIndex}-${endSlotIndex}-${Date.now()}`,
+        start: getDateFromSlot(day, startSlotIndex),
+        end: addMinutes(getDateFromSlot(day, startSlotIndex), (endSlotIndex - startSlotIndex) * SLOT_DURATION_MINUTES),
       };
 
       setSelectedSlots(prev => [...prev, newSlot]);
@@ -67,13 +69,13 @@ export function useCalendarSelection(weekStart: Date) {
       return null;
     }
 
-    const startHour = Math.min(selectionState.startSlot.hour, selectionState.currentSlot.hour);
-    const endHour = Math.max(selectionState.startSlot.hour, selectionState.currentSlot.hour);
+    const startSlotIndex = Math.min(selectionState.startSlot.slotIndex, selectionState.currentSlot.slotIndex);
+    const endSlotIndex = Math.max(selectionState.startSlot.slotIndex, selectionState.currentSlot.slotIndex);
 
     return {
       day: selectionState.startSlot.day,
-      startHour,
-      endHour,
+      startSlotIndex,
+      endSlotIndex,
     };
   }, [selectionState]);
 
