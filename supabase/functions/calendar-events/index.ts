@@ -65,6 +65,21 @@ serve(async (req) => {
       );
     }
 
+    // Validate date range (max 365 days to prevent DoS)
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      const end = new Date(endDate);
+      const daysDiff = (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24);
+      const MAX_DAYS = 365;
+      
+      if (daysDiff > MAX_DAYS || daysDiff < 0) {
+        return new Response(
+          JSON.stringify({ error: 'Invalid date range. Maximum range is 365 days.' }),
+          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+      }
+    }
+
     // Fetch the user's calendar connection from the database
     const { data: connection, error: connError } = await supabase
       .from('calendar_connections')
