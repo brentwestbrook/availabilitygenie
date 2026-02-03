@@ -1,70 +1,136 @@
 
-# Update Availability Text Format
 
-## Changes Required
+# Fix Google and Microsoft Calendar Connection Errors
 
-Update the availability text output to:
-1. Include the date in parentheses after the day name (e.g., "Thursday (2/5)")
-2. Move the timezone to appear only once at the very end of the text
+## Problem Summary
 
-## Current vs New Format
+The calendar connections are failing for two main reasons:
+1. The `calendar-events` edge function uses `supabase.auth.getClaims(token)` which is not the correct API
+2. Token refresh logic is missing - expired tokens cause API failures
 
-| Current | New |
-|---------|-----|
-| `I'm available Thursday 9am–11am ET or Friday 2pm–4pm ET.` | `I'm available Thursday (2/5) 9am–11am or Friday (2/6) 2pm–4pm ET.` |
+The edge function logs show:
+```
+Error: Failed to fetch Google events
+```
 
-## File to Modify
+And the `calendar_connections` database table is empty, suggesting either OAuth callbacks are failing or tokens are not being stored properly.
+
+## Solution Overview
+
+| Issue | Fix |
+|-------|-----|
+| `getClaims()` API not working | Replace with `getUser()` which is the standard method |
+| Token expiration causing API failures | Add token refresh logic before making API calls |
+| Better error logging | Add detailed logging to diagnose issues |
+
+## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/hooks/useAvailabilityText.ts` | Update text formatting logic |
+| `supabase/functions/calendar-events/index.ts` | Fix authentication method and add token refresh |
 
 ## Implementation Details
 
-### 1. Add Date to Day Name
+### 1. Replace getClaims with getUser
 
-Change the day formatting to include the date in parentheses:
-
+The current code:
 ```typescript
-// Current
-const dayName = format(sortedDaySlots[0].start, 'EEEE');
-
-// New - includes date like "Thursday (2/5)"
-const dayName = format(sortedDaySlots[0].start, 'EEEE');
-const dateStr = format(sortedDaySlots[0].start, 'M/d');
-const dayWithDate = `${dayName} (${dateStr})`;
+const token = authHeader.replace('Bearer ', '');
+const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+const userId = claimsData.claims.sub;
 ```
 
-### 2. Remove Timezone from Each Part
-
-Remove the timezone from each individual part:
-
+Should be replaced with:
 ```typescript
-// Current
-parts.push(`${dayName} ${formatTimeRange(slot.start, slot.end)} ${timezone}`);
-
-// New - no timezone per part
-parts.push(`${dayWithDate} ${formatTimeRange(slot.start, slot.end)}`);
+const { data: { user }, error: userError } = await supabase.auth.getUser();
+if (userError || !user) {
+  return new Response(
+    JSON.stringify({ error: 'Unauthorized' }),
+    { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+  );
+}
+const userId = user.id;
 ```
 
-### 3. Add Timezone Once at the End
+This uses the standard `getUser()` method which automatically works with the Authorization header passed in the client configuration.
 
-Append the timezone only at the very end of the final sentence:
+### 2. Add Token Refresh Logic
+
+Before making API calls, check if the access token has expired and refresh it if needed:
 
 ```typescript
-// Current
-if (parts.length === 1) return `I'm available ${parts[0]}.`;
-
-// New - timezone added at end
-if (parts.length === 1) return `I'm available ${parts[0]} ${timezone}.`;
-if (parts.length === 2) return `I'm available ${parts[0]} or ${parts[1]} ${timezone}.`;
-
-const lastPart = parts.pop();
-return `I'm available ${parts.join(', ')}, or ${lastPart} ${timezone}.`;
+async function refreshGoogleToken(refreshToken: string): Promise<{
+  access_token: string;
+  expires_in: number;
+} | null> {
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+  
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      client_id: clientId!,
+      client_secret: clientSecret!,
+      refresh_token: refreshToken,
+      grant_type: 'refresh_token',
+    }),
+  });
+  
+  if (!response.ok) return null;
+  return response.json();
+}
 ```
 
-## Example Outputs
+Similar logic for Microsoft tokens.
 
-- Single day: `I'm available Thursday (2/5) 9am–11am ET.`
-- Two days: `I'm available Thursday (2/5) 9am–11am or Friday (2/6) 2pm–4pm ET.`
-- Multiple days: `I'm available Thursday (2/5) 9am–11am, Friday (2/6) 2pm–4pm, or Monday (2/9) 10am–12pm ET.`
+### 3. Add Better Error Logging
+
+Add detailed logging before throwing errors to help diagnose issues:
+
+```typescript
+const response = await fetch(url.toString(), {
+  headers: { Authorization: `Bearer ${accessToken}` },
+});
+
+if (!response.ok) {
+  const errorBody = await response.text();
+  console.error(`Google Calendar API error: ${response.status} - ${errorBody}`);
+  throw new Error(`Failed to fetch Google events: ${response.status}`);
+}
+```
+
+### 4. Check Token Expiry Before API Calls
+
+```typescript
+// Check if token is expired or will expire soon (5 minute buffer)
+const tokenExpiresAt = new Date(connection.token_expires_at);
+const now = new Date();
+const bufferMs = 5 * 60 * 1000; // 5 minutes
+
+if (tokenExpiresAt.getTime() - now.getTime() < bufferMs) {
+  // Token expired or expiring soon, refresh it
+  const newTokens = await refreshGoogleToken(decryptedRefreshToken);
+  if (newTokens) {
+    // Update tokens in database
+    // Use new access token
+  }
+}
+```
+
+## Technical Notes
+
+- **Authentication**: Using `getUser()` without parameters works because the Supabase client is already configured with the Authorization header
+- **Token Refresh**: Google refresh tokens don't expire (unless revoked), so we can always refresh if we have one stored
+- **Error Handling**: Better error messages will help identify the root cause if issues persist
+
+## Testing Notes
+
+After deploying, test by:
+1. Disconnecting any existing calendar connections
+2. Re-connecting Google Calendar
+3. Verifying the OAuth popup completes successfully
+4. Checking that events appear on the calendar
+
+If issues persist, check the edge function logs for detailed error messages.
+
