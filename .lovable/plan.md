@@ -1,71 +1,152 @@
 
+# Fix Calendar Connection Errors - Complete Solution
 
-# Fix Calendar Connection Errors - CORS Headers
+## Root Cause Analysis
 
-## Root Cause
+After investigating the logs and code, I found **three interconnected issues**:
 
-The edge functions are failing due to **incomplete CORS headers**. The Supabase JS client sends additional headers (`x-supabase-client-platform`, `x-supabase-client-platform-version`, etc.) that are not included in the `Access-Control-Allow-Headers` list. This causes the CORS preflight request to fail, preventing the OAuth start functions from being called.
+| Issue | Evidence | Impact |
+|-------|----------|--------|
+| Missing preview URL domains in ALLOWED_ORIGINS | Analytics show 400 errors for some requests while others succeed | Users on certain preview URLs cannot initiate OAuth |
+| OAuth callbacks never reached | Zero logs for `google-oauth-callback` and `microsoft-oauth-callback` | OAuth flow fails silently after user authenticates |
+| No debug logging or better error messages | Generic error messages hide real issues | Difficult to diagnose problems |
 
-## Evidence
+## Solution Overview
 
-- When testing the edge function directly, it returns a 401 error
-- The `calendar_connections` table is empty - OAuth callbacks never complete
-- No logs are recorded for actual OAuth operations, only boot logs
-- All edge functions have the same incomplete CORS headers
+This fix requires both **code changes** and **external OAuth configuration**:
 
-## Solution
+### Part 1: Code Changes (This Plan)
 
-Update the CORS headers in all three edge functions to include the required Supabase client headers.
+1. Improve origin validation to use pattern matching instead of exact matches
+2. Add comprehensive debug logging to all OAuth functions
+3. Improve error messages to show actual OAuth errors from providers
+4. Add more preview URL variations to the allowed list
+
+### Part 2: External Configuration (User Action Required)
+
+The OAuth redirect URIs must be registered in the provider consoles:
+
+**Google Cloud Console:**
+- URL: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/google-oauth-callback`
+
+**Microsoft Azure Portal:**
+- URL: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/microsoft-oauth-callback`
 
 ## Files to Modify
 
-| File | Change |
-|------|--------|
-| `supabase/functions/google-oauth-start/index.ts` | Update CORS headers |
-| `supabase/functions/microsoft-oauth-start/index.ts` | Update CORS headers |
-| `supabase/functions/calendar-events/index.ts` | Update CORS headers |
+| File | Changes |
+|------|---------|
+| `supabase/functions/google-oauth-start/index.ts` | Use pattern matching for origins, add debug logging |
+| `supabase/functions/microsoft-oauth-start/index.ts` | Use pattern matching for origins, add debug logging |
+| `supabase/functions/google-oauth-callback/index.ts` | Add comprehensive debug logging |
+| `supabase/functions/microsoft-oauth-callback/index.ts` | Add comprehensive debug logging |
 
 ## Implementation Details
 
-### Update CORS Headers
+### 1. Update Origin Validation with Pattern Matching
 
-Change from:
+Replace exact string matching with a function that handles various Lovable preview URL formats:
+
 ```typescript
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-};
+function isAllowedOrigin(origin: string): boolean {
+  if (!origin) return false;
+  
+  const ALLOWED_PATTERNS = [
+    // Exact matches for known domains
+    /^https:\/\/availabilitygenie\.lovable\.app$/,
+    // Local development
+    /^http:\/\/localhost:\d+$/,
+    // Lovable preview URLs (various formats)
+    /^https:\/\/[a-f0-9-]+\.lovable\.app$/,
+    /^https:\/\/[a-f0-9-]+\.lovableproject\.com$/,
+    /^https:\/\/id-preview--[a-f0-9-]+\.lovable\.app$/,
+    // Custom FRONTEND_URL if set
+  ];
+  
+  const frontendUrl = Deno.env.get('FRONTEND_URL');
+  if (frontendUrl && origin === frontendUrl) return true;
+  
+  return ALLOWED_PATTERNS.some(pattern => pattern.test(origin));
+}
 ```
 
-To:
+### 2. Add Debug Logging to OAuth Start Functions
+
+Log key information to help diagnose issues:
+
 ```typescript
-const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
-};
+console.log('OAuth start request:', {
+  origin,
+  userId,
+  hasClientId: !!clientId,
+  redirectUri,
+});
 ```
 
-This change needs to be applied to all three edge functions:
-1. `google-oauth-start/index.ts` (line 4-7)
-2. `microsoft-oauth-start/index.ts` (line 4-7)
-3. `calendar-events/index.ts` (line 5-8)
+### 3. Add Debug Logging to OAuth Callback Functions
 
-## Why This Fixes The Issue
+Log the entire flow to identify where failures occur:
 
-The Supabase JS client automatically includes telemetry/platform headers in every request. When the browser makes a preflight OPTIONS request, it checks if these headers are allowed. If any header is not in the `Access-Control-Allow-Headers` list, the preflight fails and the main request is never sent.
+```typescript
+console.log('OAuth callback received:', {
+  hasCode: !!code,
+  hasState: !!state,
+  error,
+  origin,
+  userId,
+});
 
-By adding the missing headers, the preflight will succeed and the actual OAuth start request will go through.
+// After token exchange
+console.log('Token exchange result:', {
+  success: !tokens.error,
+  error: tokens.error,
+  hasAccessToken: !!tokens.access_token,
+  hasRefreshToken: !!tokens.refresh_token,
+});
 
-## Deployment
+// After database upsert
+console.log('Database upsert result:', {
+  success: !dbError,
+  error: dbError?.message,
+});
+```
 
-After updating the files, all three edge functions will need to be redeployed for the changes to take effect.
+### 4. Improve Error Messages in Frontend
 
-## Testing
+Update the useCalendarConnections hook to show more specific errors:
 
-After deployment:
-1. Log in to the app
-2. Click the "Connect" button for Google Calendar
-3. Verify the OAuth popup opens (instead of showing an error immediately)
-4. Complete the OAuth flow
+```typescript
+} catch (e) {
+  const errorMessage = e instanceof Error ? e.message : 'Unknown error';
+  console.error('Failed to start Google OAuth:', e);
+  setError(`Failed to connect to Google Calendar: ${errorMessage}`);
+  setLoadingProvider(null);
+}
+```
+
+## Why This Will Fix the Issue
+
+1. **Pattern matching for origins** will accept all valid Lovable preview URL formats without needing to enumerate each one
+2. **Debug logging** will help identify exactly where the OAuth flow is failing
+3. **Better error messages** will surface the actual issue to users and developers
+
+## External Configuration Required
+
+After deploying the code changes, verify/add these redirect URIs in the OAuth provider consoles:
+
+**Google Cloud Console** (APIs & Services > Credentials > OAuth 2.0 Client IDs):
+- Add: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/google-oauth-callback`
+
+**Microsoft Azure Portal** (App registrations > Authentication > Redirect URIs):
+- Add: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/microsoft-oauth-callback`
+- Platform: Web
+- Type: Redirect URI
+
+## Testing Steps
+
+After deploying:
+1. Check edge function logs for debug output when clicking Connect
+2. Verify the OAuth popup opens and shows Google/Microsoft login
+3. After completing authentication, check callback function logs
+4. Verify `calendar_connections` table has a new entry
 5. Verify events appear on the calendar
-
