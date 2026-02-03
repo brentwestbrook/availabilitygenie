@@ -1,6 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { decryptToken, isEncryptedFormat } from "../_shared/encryption.ts";
+import { decryptToken, encryptToken, isEncryptedFormat } from "../_shared/encryption.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -24,21 +24,24 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY')!;
+    const supabaseServiceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
+    
     const supabase = createClient(supabaseUrl, supabaseAnonKey, {
       global: { headers: { Authorization: authHeader } }
     });
 
-    const token = authHeader.replace('Bearer ', '');
-    const { data: claimsData, error: claimsError } = await supabase.auth.getClaims(token);
+    // Use getUser() instead of getClaims() - this is the correct API
+    const { data: { user }, error: userError } = await supabase.auth.getUser();
     
-    if (claimsError || !claimsData?.claims) {
+    if (userError || !user) {
+      console.error('Auth error:', userError?.message || 'No user found');
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
       );
     }
 
-    const userId = claimsData.claims.sub;
+    const userId = user.id;
 
     const { provider, startDate, endDate } = await req.json();
 
@@ -80,15 +83,19 @@ serve(async (req) => {
       }
     }
 
+    // Use service role client to fetch connection (bypasses RLS)
+    const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
+
     // Fetch the user's calendar connection from the database
-    const { data: connection, error: connError } = await supabase
+    const { data: connection, error: connError } = await supabaseAdmin
       .from('calendar_connections')
-      .select('access_token, access_token_iv, access_token_tag, refresh_token, token_expires_at')
+      .select('id, access_token, access_token_iv, access_token_tag, refresh_token, refresh_token_iv, refresh_token_tag, token_expires_at')
       .eq('user_id', userId)
       .eq('provider', provider)
       .single();
 
     if (connError || !connection) {
+      console.error('Connection fetch error:', connError?.message || 'No connection found');
       return new Response(
         JSON.stringify({ error: 'Calendar not connected' }),
         { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -104,8 +111,58 @@ serve(async (req) => {
         tag: connection.access_token_tag!,
       });
     } else {
-      // Fallback for existing plain text tokens (migration period)
       accessToken = connection.access_token;
+    }
+
+    // Check if token is expired or will expire soon (5 minute buffer)
+    const tokenExpiresAt = connection.token_expires_at ? new Date(connection.token_expires_at) : null;
+    const now = new Date();
+    const bufferMs = 5 * 60 * 1000; // 5 minutes
+
+    if (tokenExpiresAt && (tokenExpiresAt.getTime() - now.getTime() < bufferMs)) {
+      console.log('Token expired or expiring soon, attempting refresh...');
+      
+      // Decrypt refresh token if available
+      let refreshToken: string | null = null;
+      if (connection.refresh_token) {
+        if (isEncryptedFormat(connection.refresh_token_iv)) {
+          refreshToken = await decryptToken({
+            encrypted: connection.refresh_token,
+            iv: connection.refresh_token_iv!,
+            tag: connection.refresh_token_tag!,
+          });
+        } else {
+          refreshToken = connection.refresh_token;
+        }
+      }
+
+      if (refreshToken) {
+        const newTokens = provider === 'google' 
+          ? await refreshGoogleToken(refreshToken)
+          : await refreshMicrosoftToken(refreshToken);
+
+        if (newTokens) {
+          // Encrypt and store new tokens
+          const encryptedAccessToken = await encryptToken(newTokens.access_token);
+          const newExpiresAt = new Date(Date.now() + newTokens.expires_in * 1000).toISOString();
+
+          await supabaseAdmin
+            .from('calendar_connections')
+            .update({
+              access_token: encryptedAccessToken.encrypted,
+              access_token_iv: encryptedAccessToken.iv,
+              access_token_tag: encryptedAccessToken.tag,
+              token_expires_at: newExpiresAt,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', connection.id);
+
+          accessToken = newTokens.access_token;
+          console.log('Token refreshed successfully');
+        } else {
+          console.error('Failed to refresh token');
+        }
+      }
     }
 
     let events: any[] = [];
@@ -129,6 +186,81 @@ serve(async (req) => {
   }
 });
 
+async function refreshGoogleToken(refreshToken: string): Promise<{
+  access_token: string;
+  expires_in: number;
+} | null> {
+  const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
+  const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
+  
+  if (!clientId || !clientSecret) {
+    console.error('Missing Google OAuth credentials');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`Google token refresh error: ${response.status} - ${errorBody}`);
+      return null;
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Google token refresh exception:', error);
+    return null;
+  }
+}
+
+async function refreshMicrosoftToken(refreshToken: string): Promise<{
+  access_token: string;
+  expires_in: number;
+} | null> {
+  const clientId = Deno.env.get('MICROSOFT_CLIENT_ID');
+  const clientSecret = Deno.env.get('MICROSOFT_CLIENT_SECRET');
+  
+  if (!clientId || !clientSecret) {
+    console.error('Missing Microsoft OAuth credentials');
+    return null;
+  }
+
+  try {
+    const response = await fetch('https://login.microsoftonline.com/common/oauth2/v2.0/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+        scope: 'openid profile email offline_access Calendars.Read',
+      }),
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.text();
+      console.error(`Microsoft token refresh error: ${response.status} - ${errorBody}`);
+      return null;
+    }
+
+    return response.json();
+  } catch (error) {
+    console.error('Microsoft token refresh exception:', error);
+    return null;
+  }
+}
+
 async function fetchGoogleEvents(accessToken: string, startDate: string, endDate: string) {
   const calendarId = 'primary';
   let allEvents: any[] = [];
@@ -150,7 +282,9 @@ async function fetchGoogleEvents(accessToken: string, startDate: string, endDate
     });
 
     if (!response.ok) {
-      throw new Error('Failed to fetch Google events');
+      const errorBody = await response.text();
+      console.error(`Google Calendar API error: ${response.status} - ${errorBody}`);
+      throw new Error(`Failed to fetch Google events: ${response.status}`);
     }
 
     const data = await response.json();
@@ -171,7 +305,6 @@ async function fetchMicrosoftEvents(accessToken: string, startDate: string, endD
   let allEvents: any[] = [];
   let nextLink: string | undefined = undefined;
 
-  // Initial URL
   const initialUrl = new URL('https://graph.microsoft.com/v1.0/me/calendarView');
   initialUrl.searchParams.set('startDateTime', startDate);
   initialUrl.searchParams.set('endDateTime', endDate);
@@ -190,7 +323,9 @@ async function fetchMicrosoftEvents(accessToken: string, startDate: string, endD
     });
 
     if (!response.ok) {
-      throw new Error('Failed to fetch Microsoft events');
+      const errorBody = await response.text();
+      console.error(`Microsoft Graph API error: ${response.status} - ${errorBody}`);
+      throw new Error(`Failed to fetch Microsoft events: ${response.status}`);
     }
 
     const data = await response.json();
