@@ -108,7 +108,7 @@ serve(async (req) => {
       accessToken = connection.access_token;
     }
 
-    let events = [];
+    let events: any[] = [];
 
     if (provider === 'google') {
       events = await fetchGoogleEvents(accessToken, startDate, endDate);
@@ -131,24 +131,34 @@ serve(async (req) => {
 
 async function fetchGoogleEvents(accessToken: string, startDate: string, endDate: string) {
   const calendarId = 'primary';
-  const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events`);
-  url.searchParams.set('timeMin', startDate);
-  url.searchParams.set('timeMax', endDate);
-  url.searchParams.set('singleEvents', 'true');
-  url.searchParams.set('orderBy', 'startTime');
-  url.searchParams.set('maxResults', '100');
+  let allEvents: any[] = [];
+  let pageToken: string | undefined;
 
-  const response = await fetch(url.toString(), {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
+  do {
+    const url = new URL(`https://www.googleapis.com/calendar/v3/calendars/${calendarId}/events`);
+    url.searchParams.set('timeMin', startDate);
+    url.searchParams.set('timeMax', endDate);
+    url.searchParams.set('singleEvents', 'true');
+    url.searchParams.set('orderBy', 'startTime');
+    url.searchParams.set('maxResults', '250');
+    if (pageToken) {
+      url.searchParams.set('pageToken', pageToken);
+    }
 
-  if (!response.ok) {
-    throw new Error('Failed to fetch Google events');
-  }
+    const response = await fetch(url.toString(), {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
 
-  const data = await response.json();
+    if (!response.ok) {
+      throw new Error('Failed to fetch Google events');
+    }
 
-  return (data.items || []).map((event: any) => ({
+    const data = await response.json();
+    allEvents = allEvents.concat(data.items || []);
+    pageToken = data.nextPageToken;
+  } while (pageToken);
+
+  return allEvents.map((event: any) => ({
     id: event.id,
     title: event.summary || 'Busy',
     start: event.start?.dateTime || event.start?.date,
@@ -158,27 +168,40 @@ async function fetchGoogleEvents(accessToken: string, startDate: string, endDate
 }
 
 async function fetchMicrosoftEvents(accessToken: string, startDate: string, endDate: string) {
-  const url = new URL('https://graph.microsoft.com/v1.0/me/calendarView');
-  url.searchParams.set('startDateTime', startDate);
-  url.searchParams.set('endDateTime', endDate);
-  url.searchParams.set('$top', '100');
-  url.searchParams.set('$select', 'id,subject,start,end');
-  url.searchParams.set('$orderby', 'start/dateTime');
+  let allEvents: any[] = [];
+  let nextLink: string | undefined = undefined;
 
-  const response = await fetch(url.toString(), {
-    headers: { 
-      Authorization: `Bearer ${accessToken}`,
-      'Prefer': 'outlook.timezone="UTC"',
-    },
-  });
+  // Initial URL
+  const initialUrl = new URL('https://graph.microsoft.com/v1.0/me/calendarView');
+  initialUrl.searchParams.set('startDateTime', startDate);
+  initialUrl.searchParams.set('endDateTime', endDate);
+  initialUrl.searchParams.set('$top', '100');
+  initialUrl.searchParams.set('$select', 'id,subject,start,end');
+  initialUrl.searchParams.set('$orderby', 'start/dateTime');
 
-  if (!response.ok) {
-    throw new Error('Failed to fetch Microsoft events');
-  }
+  let currentUrl: string = initialUrl.toString();
 
-  const data = await response.json();
+  do {
+    const response = await fetch(currentUrl, {
+      headers: { 
+        Authorization: `Bearer ${accessToken}`,
+        'Prefer': 'outlook.timezone="UTC"',
+      },
+    });
 
-  return (data.value || []).map((event: any) => ({
+    if (!response.ok) {
+      throw new Error('Failed to fetch Microsoft events');
+    }
+
+    const data = await response.json();
+    allEvents = allEvents.concat(data.value || []);
+    nextLink = data['@odata.nextLink'];
+    if (nextLink) {
+      currentUrl = nextLink;
+    }
+  } while (nextLink);
+
+  return allEvents.map((event: any) => ({
     id: event.id,
     title: event.subject || 'Busy',
     start: event.start?.dateTime,

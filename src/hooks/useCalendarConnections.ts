@@ -87,14 +87,15 @@ export function useCalendarConnections() {
       startOfWeek.setDate(now.getDate() - now.getDay());
       startOfWeek.setHours(0, 0, 0, 0);
 
-      const endOfWeek = new Date(startOfWeek);
-      endOfWeek.setDate(startOfWeek.getDate() + 7);
+      // Fetch 4 weeks (current week + 3 following weeks)
+      const endDate = new Date(startOfWeek);
+      endDate.setDate(startOfWeek.getDate() + 28);
 
       const { data, error } = await supabase.functions.invoke('calendar-events', {
         body: {
           provider,
           startDate: startOfWeek.toISOString(),
-          endDate: endOfWeek.toISOString(),
+          endDate: endDate.toISOString(),
         },
       });
 
