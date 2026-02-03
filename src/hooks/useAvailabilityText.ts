@@ -83,22 +83,24 @@ export function useAvailabilityText(selectedSlots: TimeSlot[]) {
       const sortedDaySlots = daySlots.sort((a, b) => a.start.getTime() - b.start.getTime());
       
       const dayName = format(sortedDaySlots[0].start, 'EEEE');
+      const dateStr = format(sortedDaySlots[0].start, 'M/d');
+      const dayWithDate = `${dayName} (${dateStr})`;
       
       if (sortedDaySlots.length === 1) {
         const slot = sortedDaySlots[0];
-        parts.push(`${dayName} ${formatTimeRange(slot.start, slot.end)} ${timezone}`);
+        parts.push(`${dayWithDate} ${formatTimeRange(slot.start, slot.end)}`);
       } else {
         const ranges = sortedDaySlots.map(slot => formatTimeRange(slot.start, slot.end)).join(' and ');
-        parts.push(`${dayName} ${ranges} ${timezone}`);
+        parts.push(`${dayWithDate} ${ranges}`);
       }
     });
 
     if (parts.length === 0) return '';
-    if (parts.length === 1) return `I'm available ${parts[0]}.`;
-    if (parts.length === 2) return `I'm available ${parts[0]} or ${parts[1]}.`;
+    if (parts.length === 1) return `I'm available ${parts[0]} ${timezone}.`;
+    if (parts.length === 2) return `I'm available ${parts[0]} or ${parts[1]} ${timezone}.`;
     
     const lastPart = parts.pop();
-    return `I'm available ${parts.join(', ')}, or ${lastPart}.`;
+    return `I'm available ${parts.join(', ')}, or ${lastPart} ${timezone}.`;
   }, [selectedSlots]);
 
   const copyToClipboard = useCallback(async () => {
