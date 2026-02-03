@@ -52,7 +52,12 @@ serve(async (req) => {
     // Validate origin against allowlist to prevent open redirect attacks
     const ALLOWED_ORIGINS = [
       Deno.env.get('FRONTEND_URL') || '',
+      // Preview domains
       'https://id-preview--599645c8-f274-42a2-bfb6-3180155b3d75.lovable.app',
+      'https://599645c8-f274-42a2-bfb6-3180155b3d75.lovableproject.com',
+      // Published domain
+      'https://availabilitygenie.lovable.app',
+      // Local development
       'http://localhost:5173',
       'http://localhost:3000',
       'http://localhost:8080',
