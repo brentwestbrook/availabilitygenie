@@ -11,16 +11,19 @@ function getTimezoneAbbreviation(): string {
 }
 
 function formatTimeRange(start: Date, end: Date): string {
-  const startHour = start.getHours();
-  const endHour = end.getHours();
-  
-  const formatTime = (hour: number): string => {
+  const formatTime = (date: Date): string => {
+    const hour = date.getHours();
+    const minutes = date.getMinutes();
     const period = hour >= 12 ? 'pm' : 'am';
     const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour}${period}`;
+    
+    if (minutes === 0) {
+      return `${displayHour}${period}`;
+    }
+    return `${displayHour}:${minutes.toString().padStart(2, '0')}${period}`;
   };
 
-  return `${formatTime(startHour)}–${formatTime(endHour)}`;
+  return `${formatTime(start)}–${formatTime(end)}`;
 }
 
 function mergeOverlappingSlots(slots: TimeSlot[]): TimeSlot[] {
