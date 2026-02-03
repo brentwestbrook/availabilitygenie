@@ -41,7 +41,11 @@ serve(async (req) => {
 
     const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
     if (!clientId) {
-      throw new Error('GOOGLE_CLIENT_ID not configured');
+      console.error('GOOGLE_CLIENT_ID not configured');
+      return new Response(
+        JSON.stringify({ error: 'Service temporarily unavailable' }),
+        { status: 503, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     const { origin } = await req.json();
@@ -86,10 +90,9 @@ serve(async (req) => {
       { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   } catch (error: unknown) {
-    console.error('Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('OAuth start error:', error);
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ error: 'Unable to start authentication. Please try again.' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
