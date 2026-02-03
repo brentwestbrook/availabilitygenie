@@ -17,6 +17,8 @@ function isAllowedOrigin(origin: string): boolean {
   const ALLOWED_PATTERNS = [
     // Published domain
     /^https:\/\/availabilitygenie\.lovable\.app$/,
+    // Custom domain
+    /^https:\/\/availability\.brentwestbrook\.com$/,
     // Local development
     /^http:\/\/localhost:\d+$/,
     // Lovable preview URLs (various formats)
