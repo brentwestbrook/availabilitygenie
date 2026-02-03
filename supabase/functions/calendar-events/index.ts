@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { decryptToken, isEncryptedFormat } from "../_shared/encryption.ts";
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,14 +42,33 @@ serve(async (req) => {
 
     const { provider, startDate, endDate } = await req.json();
 
-    if (!provider) {
-      throw new Error('Missing provider parameter');
+    // Validate provider
+    if (!provider || !['google', 'microsoft'].includes(provider)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid provider' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Validate date format (ISO 8601)
+    const dateRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.\d{3}Z$/;
+    if (startDate && !dateRegex.test(startDate)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid startDate format' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
+    if (endDate && !dateRegex.test(endDate)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid endDate format' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
     }
 
     // Fetch the user's calendar connection from the database
     const { data: connection, error: connError } = await supabase
       .from('calendar_connections')
-      .select('access_token, refresh_token, token_expires_at')
+      .select('access_token, access_token_iv, access_token_tag, refresh_token, token_expires_at')
       .eq('user_id', userId)
       .eq('provider', provider)
       .single();
@@ -60,14 +80,25 @@ serve(async (req) => {
       );
     }
 
+    // Decrypt access token
+    let accessToken: string;
+    if (isEncryptedFormat(connection.access_token_iv)) {
+      accessToken = await decryptToken({
+        encrypted: connection.access_token,
+        iv: connection.access_token_iv!,
+        tag: connection.access_token_tag!,
+      });
+    } else {
+      // Fallback for existing plain text tokens (migration period)
+      accessToken = connection.access_token;
+    }
+
     let events = [];
 
     if (provider === 'google') {
-      events = await fetchGoogleEvents(connection.access_token, startDate, endDate);
+      events = await fetchGoogleEvents(accessToken, startDate, endDate);
     } else if (provider === 'microsoft') {
-      events = await fetchMicrosoftEvents(connection.access_token, startDate, endDate);
-    } else {
-      throw new Error('Invalid provider');
+      events = await fetchMicrosoftEvents(accessToken, startDate, endDate);
     }
 
     return new Response(
@@ -76,9 +107,8 @@ serve(async (req) => {
     );
   } catch (error: unknown) {
     console.error('Error:', error);
-    const message = error instanceof Error ? error.message : 'Unknown error';
     return new Response(
-      JSON.stringify({ error: message }),
+      JSON.stringify({ error: 'Failed to fetch calendar events' }),
       { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
     );
   }
@@ -98,8 +128,7 @@ async function fetchGoogleEvents(accessToken: string, startDate: string, endDate
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to fetch Google events');
+    throw new Error('Failed to fetch Google events');
   }
 
   const data = await response.json();
@@ -129,8 +158,7 @@ async function fetchMicrosoftEvents(accessToken: string, startDate: string, endD
   });
 
   if (!response.ok) {
-    const error = await response.json();
-    throw new Error(error.error?.message || 'Failed to fetch Microsoft events');
+    throw new Error('Failed to fetch Microsoft events');
   }
 
   const data = await response.json();

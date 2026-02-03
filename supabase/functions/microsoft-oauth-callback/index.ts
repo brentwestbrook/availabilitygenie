@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { encryptToken } from "../_shared/encryption.ts";
 
 serve(async (req) => {
   try {
@@ -72,19 +73,29 @@ serve(async (req) => {
     });
     const userInfo = await userInfoResponse.json();
 
-    // Store tokens directly in the database using service role
+    // Encrypt tokens before storing
+    const encryptedAccess = await encryptToken(tokens.access_token);
+    const encryptedRefresh = tokens.refresh_token 
+      ? await encryptToken(tokens.refresh_token) 
+      : null;
+
+    // Store encrypted tokens in the database using service role
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Upsert the connection (update if exists, insert if not)
+    // Upsert the connection with encrypted tokens
     const { error: dbError } = await supabase
       .from('calendar_connections')
       .upsert({
         user_id: userId,
         provider: 'microsoft',
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
+        access_token: encryptedAccess.encrypted,
+        access_token_iv: encryptedAccess.iv,
+        access_token_tag: encryptedAccess.tag,
+        refresh_token: encryptedRefresh?.encrypted || null,
+        refresh_token_iv: encryptedRefresh?.iv || null,
+        refresh_token_tag: encryptedRefresh?.tag || null,
         token_expires_at: new Date(Date.now() + tokens.expires_in * 1000).toISOString(),
         email: userInfo.mail || userInfo.userPrincipalName,
         updated_at: new Date().toISOString(),
