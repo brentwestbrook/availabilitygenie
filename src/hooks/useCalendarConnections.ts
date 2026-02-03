@@ -120,6 +120,58 @@ export function useCalendarConnections() {
     }
   }, [session]);
 
+  const openOAuthPopup = useCallback((url: string, provider: 'google' | 'microsoft') => {
+    const width = 600;
+    const height = 700;
+    const left = window.screenX + (window.outerWidth - width) / 2;
+    const top = window.screenY + (window.outerHeight - height) / 2;
+    
+    const popup = window.open(
+      url,
+      'oauth-popup',
+      `width=${width},height=${height},left=${left},top=${top},scrollbars=yes,resizable=yes`
+    );
+
+    if (!popup) {
+      setError('Popup blocked. Please allow popups for this site.');
+      setLoadingProvider(null);
+      return;
+    }
+
+    // Monitor popup for completion
+    const pollInterval = setInterval(() => {
+      try {
+        if (popup.closed) {
+          clearInterval(pollInterval);
+          setLoadingProvider(null);
+          loadConnections();
+        } else if (popup.location?.href?.includes(window.location.origin)) {
+          // Popup redirected back to our domain - OAuth complete
+          const url = new URL(popup.location.href);
+          const oauthError = url.searchParams.get('oauth_error');
+          if (oauthError) {
+            setError(decodeURIComponent(oauthError));
+          }
+          popup.close();
+          clearInterval(pollInterval);
+          setLoadingProvider(null);
+          loadConnections();
+        }
+      } catch (e) {
+        // Cross-origin access blocked until redirect back to our domain - expected behavior
+      }
+    }, 500);
+
+    // Cleanup after 5 minutes (timeout)
+    setTimeout(() => {
+      clearInterval(pollInterval);
+      if (!popup.closed) {
+        popup.close();
+      }
+      setLoadingProvider(null);
+    }, 5 * 60 * 1000);
+  }, [loadConnections]);
+
   const connectGoogle = useCallback(async () => {
     if (!session) {
       setError('Please sign in first');
@@ -136,14 +188,14 @@ export function useCalendarConnections() {
 
       if (error) throw error;
       if (data?.url) {
-        window.location.href = data.url;
+        openOAuthPopup(data.url, 'google');
       }
     } catch (e) {
       console.error('Failed to start Google OAuth:', e);
       setError('Failed to connect to Google Calendar');
       setLoadingProvider(null);
     }
-  }, [session]);
+  }, [session, openOAuthPopup]);
 
   const connectMicrosoft = useCallback(async () => {
     if (!session) {
@@ -161,14 +213,14 @@ export function useCalendarConnections() {
 
       if (error) throw error;
       if (data?.url) {
-        window.location.href = data.url;
+        openOAuthPopup(data.url, 'microsoft');
       }
     } catch (e) {
       console.error('Failed to start Microsoft OAuth:', e);
       setError('Failed to connect to Microsoft Outlook');
       setLoadingProvider(null);
     }
-  }, [session]);
+  }, [session, openOAuthPopup]);
 
   const disconnectProvider = useCallback(async (provider: 'google' | 'microsoft') => {
     if (!user) return;
