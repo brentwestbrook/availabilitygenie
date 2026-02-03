@@ -45,6 +45,22 @@ serve(async (req) => {
     }
 
     const { origin } = await req.json();
+
+    // Validate origin against allowlist to prevent open redirect attacks
+    const ALLOWED_ORIGINS = [
+      Deno.env.get('FRONTEND_URL') || '',
+      'https://id-preview--599645c8-f274-42a2-bfb6-3180155b3d75.lovable.app',
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://localhost:8080',
+    ].filter(Boolean);
+
+    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+      return new Response(
+        JSON.stringify({ error: 'Invalid origin' }),
+        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+      );
+    }
     
     const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/microsoft-oauth-callback`;
     
