@@ -40,28 +40,57 @@ export function useCalendarSelection(weekStart: Date) {
       const startSlotIndex = Math.min(selectionState.startSlot.slotIndex, selectionState.currentSlot.slotIndex);
       const endSlotIndex = Math.max(selectionState.startSlot.slotIndex, selectionState.currentSlot.slotIndex) + 1;
 
-      const newStart = getDateFromSlot(day, startSlotIndex);
-      const newEnd = addMinutes(newStart, (endSlotIndex - startSlotIndex) * SLOT_DURATION_MINUTES);
-      const newStartMinutes = newStart.getHours() * 60 + newStart.getMinutes();
-      const newEndMinutes = newEnd.getHours() * 60 + newEnd.getMinutes();
+      const clickedStart = getDateFromSlot(day, startSlotIndex);
+      const clickedEnd = addMinutes(clickedStart, (endSlotIndex - startSlotIndex) * SLOT_DURATION_MINUTES);
+      const clickedStartMinutes = clickedStart.getHours() * 60 + clickedStart.getMinutes();
+      const clickedEndMinutes = clickedEnd.getHours() * 60 + clickedEnd.getMinutes();
 
-      // Check if any existing selection overlaps with the new selection
+      // Find slots that overlap with clicked area
       const overlappingSlots = selectedSlots.filter(slot => {
-        if (!isSameDay(slot.start, newStart)) return false;
+        if (!isSameDay(slot.start, clickedStart)) return false;
         const slotStartMinutes = slot.start.getHours() * 60 + slot.start.getMinutes();
         const slotEndMinutes = slot.end.getHours() * 60 + slot.end.getMinutes();
-        return newStartMinutes < slotEndMinutes && newEndMinutes > slotStartMinutes;
+        return clickedStartMinutes < slotEndMinutes && clickedEndMinutes > slotStartMinutes;
       });
 
       if (overlappingSlots.length > 0) {
-        // Remove overlapping selections (toggle off)
-        setSelectedSlots(prev => prev.filter(slot => !overlappingSlots.includes(slot)));
+        // Split overlapping slots, removing only the clicked portion
+        const newSlots: TimeSlot[] = [];
+        const slotsToRemove = new Set(overlappingSlots.map(s => s.id));
+
+        overlappingSlots.forEach(slot => {
+          const slotStartMinutes = slot.start.getHours() * 60 + slot.start.getMinutes();
+          const slotEndMinutes = slot.end.getHours() * 60 + slot.end.getMinutes();
+
+          // Keep portion before clicked area
+          if (slotStartMinutes < clickedStartMinutes) {
+            newSlots.push({
+              id: `${day}-before-${Date.now()}-${Math.random()}`,
+              start: slot.start,
+              end: clickedStart,
+            });
+          }
+
+          // Keep portion after clicked area
+          if (slotEndMinutes > clickedEndMinutes) {
+            newSlots.push({
+              id: `${day}-after-${Date.now()}-${Math.random()}`,
+              start: clickedEnd,
+              end: slot.end,
+            });
+          }
+        });
+
+        setSelectedSlots(prev => [
+          ...prev.filter(slot => !slotsToRemove.has(slot.id)),
+          ...newSlots,
+        ]);
       } else {
         // Add new selection
         const newSlot: TimeSlot = {
           id: `${day}-${startSlotIndex}-${endSlotIndex}-${Date.now()}`,
-          start: newStart,
-          end: newEnd,
+          start: clickedStart,
+          end: clickedEnd,
         };
         setSelectedSlots(prev => [...prev, newSlot]);
       }
