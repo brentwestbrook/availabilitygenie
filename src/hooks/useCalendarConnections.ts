@@ -192,8 +192,9 @@ export function useCalendarConnections() {
         openOAuthPopup(data.url, 'google');
       }
     } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : 'Unknown error';
       console.error('Failed to start Google OAuth:', e);
-      setError('Failed to connect to Google Calendar');
+      setError(`Failed to connect to Google Calendar: ${errorMessage}`);
       setLoadingProvider(null);
     }
   }, [session, openOAuthPopup]);
@@ -217,8 +218,9 @@ export function useCalendarConnections() {
         openOAuthPopup(data.url, 'microsoft');
       }
     } catch (e) {
+      const errorMessage = e instanceof Error ? e.message : 'Unknown error';
       console.error('Failed to start Microsoft OAuth:', e);
-      setError('Failed to connect to Microsoft Outlook');
+      setError(`Failed to connect to Microsoft Outlook: ${errorMessage}`);
       setLoadingProvider(null);
     }
   }, [session, openOAuthPopup]);

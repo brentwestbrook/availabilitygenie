@@ -3,11 +3,19 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { encryptToken } from "../_shared/encryption.ts";
 
 serve(async (req) => {
+  console.log('Google OAuth callback: Request received');
+  
   try {
     const url = new URL(req.url);
     const code = url.searchParams.get('code');
     const state = url.searchParams.get('state');
     const error = url.searchParams.get('error');
+
+    console.log('Google OAuth callback params:', {
+      hasCode: !!code,
+      hasState: !!state,
+      error,
+    });
 
     let origin = '';
     let userId = '';
@@ -15,11 +23,14 @@ serve(async (req) => {
       const stateData = JSON.parse(atob(state || ''));
       origin = stateData.origin || '';
       userId = stateData.userId || '';
-    } catch {
+      console.log('Google OAuth callback: State decoded', { origin, userId });
+    } catch (e) {
+      console.error('Google OAuth callback: Failed to decode state', e);
       origin = '';
     }
 
     if (error) {
+      console.log('Google OAuth callback: OAuth error from provider', { error });
       return new Response(null, {
         status: 302,
         headers: { Location: `${origin}?oauth_error=${encodeURIComponent(error)}` },
@@ -27,6 +38,7 @@ serve(async (req) => {
     }
 
     if (!code) {
+      console.log('Google OAuth callback: No code received');
       return new Response(null, {
         status: 302,
         headers: { Location: `${origin}?oauth_error=no_code` },
@@ -34,6 +46,7 @@ serve(async (req) => {
     }
 
     if (!userId) {
+      console.log('Google OAuth callback: No user ID in state');
       return new Response(null, {
         status: 302,
         headers: { Location: `${origin}?oauth_error=no_user` },
@@ -43,6 +56,12 @@ serve(async (req) => {
     const clientId = Deno.env.get('GOOGLE_CLIENT_ID');
     const clientSecret = Deno.env.get('GOOGLE_CLIENT_SECRET');
     const redirectUri = `${Deno.env.get('SUPABASE_URL')}/functions/v1/google-oauth-callback`;
+
+    console.log('Google OAuth callback: Exchanging code for tokens', {
+      hasClientId: !!clientId,
+      hasClientSecret: !!clientSecret,
+      redirectUri,
+    });
 
     // Exchange code for tokens
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
@@ -59,20 +78,36 @@ serve(async (req) => {
 
     const tokens = await tokenResponse.json();
 
+    console.log('Google OAuth callback: Token exchange result', {
+      success: !tokens.error,
+      error: tokens.error,
+      errorDescription: tokens.error_description,
+      hasAccessToken: !!tokens.access_token,
+      hasRefreshToken: !!tokens.refresh_token,
+      expiresIn: tokens.expires_in,
+    });
+
     if (tokens.error) {
       return new Response(null, {
         status: 302,
-        headers: { Location: `${origin}?oauth_error=${encodeURIComponent(tokens.error)}` },
+        headers: { Location: `${origin}?oauth_error=${encodeURIComponent(tokens.error_description || tokens.error)}` },
       });
     }
 
     // Get user email
+    console.log('Google OAuth callback: Fetching user info');
     const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
     const userInfo = await userInfoResponse.json();
+    
+    console.log('Google OAuth callback: User info fetched', {
+      hasEmail: !!userInfo.email,
+      email: userInfo.email,
+    });
 
     // Encrypt tokens before storing
+    console.log('Google OAuth callback: Encrypting tokens');
     const encryptedAccess = await encryptToken(tokens.access_token);
     const encryptedRefresh = tokens.refresh_token 
       ? await encryptToken(tokens.refresh_token) 
@@ -82,6 +117,8 @@ serve(async (req) => {
     const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
     const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
+    console.log('Google OAuth callback: Upserting to database', { userId, provider: 'google' });
 
     // Upsert the connection with encrypted tokens
     const { error: dbError } = await supabase
@@ -102,21 +139,29 @@ serve(async (req) => {
         onConflict: 'user_id,provider',
       });
 
+    console.log('Google OAuth callback: Database upsert result', {
+      success: !dbError,
+      error: dbError?.message,
+      code: dbError?.code,
+    });
+
     if (dbError) {
-      console.error('Database error:', dbError);
+      console.error('Google OAuth callback: Database error:', dbError);
       return new Response(null, {
         status: 302,
         headers: { Location: `${origin}?oauth_error=database_error` },
       });
     }
 
+    console.log('Google OAuth callback: Success! Redirecting with oauth_success=google');
+    
     // Redirect with success indicator only (no tokens in URL)
     return new Response(null, {
       status: 302,
       headers: { Location: `${origin}?oauth_success=google` },
     });
   } catch (error: unknown) {
-    console.error('Error:', error);
+    console.error('Google OAuth callback: Unexpected error:', error);
     return new Response(null, {
       status: 302,
       headers: { Location: `/?oauth_error=server_error` },
