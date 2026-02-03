@@ -1,152 +1,65 @@
 
-# Fix Calendar Connection Errors - Complete Solution
 
-## Root Cause Analysis
+# Fix Custom Domain Origin Validation
 
-After investigating the logs and code, I found **three interconnected issues**:
+## Root Cause
 
-| Issue | Evidence | Impact |
-|-------|----------|--------|
-| Missing preview URL domains in ALLOWED_ORIGINS | Analytics show 400 errors for some requests while others succeed | Users on certain preview URLs cannot initiate OAuth |
-| OAuth callbacks never reached | Zero logs for `google-oauth-callback` and `microsoft-oauth-callback` | OAuth flow fails silently after user authenticates |
-| No debug logging or better error messages | Generic error messages hide real issues | Difficult to diagnose problems |
+The error occurs because you're accessing the app from your **custom domain** `https://availability.brentwestbrook.com`, which is not recognized by the current origin validation patterns.
 
-## Solution Overview
+The logs clearly show:
+```
+Google OAuth start: Origin rejected { origin: "https://availability.brentwestbrook.com" }
+Microsoft OAuth start: Origin rejected { origin: "https://availability.brentwestbrook.com" }
+```
 
-This fix requires both **code changes** and **external OAuth configuration**:
+## Solution
 
-### Part 1: Code Changes (This Plan)
-
-1. Improve origin validation to use pattern matching instead of exact matches
-2. Add comprehensive debug logging to all OAuth functions
-3. Improve error messages to show actual OAuth errors from providers
-4. Add more preview URL variations to the allowed list
-
-### Part 2: External Configuration (User Action Required)
-
-The OAuth redirect URIs must be registered in the provider consoles:
-
-**Google Cloud Console:**
-- URL: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/google-oauth-callback`
-
-**Microsoft Azure Portal:**
-- URL: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/microsoft-oauth-callback`
+Add your custom domain to the allowed origins in both OAuth start functions. I'll add it as an explicit pattern alongside the existing Lovable patterns.
 
 ## Files to Modify
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/google-oauth-start/index.ts` | Use pattern matching for origins, add debug logging |
-| `supabase/functions/microsoft-oauth-start/index.ts` | Use pattern matching for origins, add debug logging |
-| `supabase/functions/google-oauth-callback/index.ts` | Add comprehensive debug logging |
-| `supabase/functions/microsoft-oauth-callback/index.ts` | Add comprehensive debug logging |
+| File | Change |
+|------|--------|
+| `supabase/functions/google-oauth-start/index.ts` | Add custom domain to ALLOWED_PATTERNS |
+| `supabase/functions/microsoft-oauth-start/index.ts` | Add custom domain to ALLOWED_PATTERNS |
 
 ## Implementation Details
 
-### 1. Update Origin Validation with Pattern Matching
+### Update isAllowedOrigin Function
 
-Replace exact string matching with a function that handles various Lovable preview URL formats:
-
-```typescript
-function isAllowedOrigin(origin: string): boolean {
-  if (!origin) return false;
-  
-  const ALLOWED_PATTERNS = [
-    // Exact matches for known domains
-    /^https:\/\/availabilitygenie\.lovable\.app$/,
-    // Local development
-    /^http:\/\/localhost:\d+$/,
-    // Lovable preview URLs (various formats)
-    /^https:\/\/[a-f0-9-]+\.lovable\.app$/,
-    /^https:\/\/[a-f0-9-]+\.lovableproject\.com$/,
-    /^https:\/\/id-preview--[a-f0-9-]+\.lovable\.app$/,
-    // Custom FRONTEND_URL if set
-  ];
-  
-  const frontendUrl = Deno.env.get('FRONTEND_URL');
-  if (frontendUrl && origin === frontendUrl) return true;
-  
-  return ALLOWED_PATTERNS.some(pattern => pattern.test(origin));
-}
-```
-
-### 2. Add Debug Logging to OAuth Start Functions
-
-Log key information to help diagnose issues:
+Add the custom domain pattern to the ALLOWED_PATTERNS array:
 
 ```typescript
-console.log('OAuth start request:', {
-  origin,
-  userId,
-  hasClientId: !!clientId,
-  redirectUri,
-});
+const ALLOWED_PATTERNS = [
+  // Published domain
+  /^https:\/\/availabilitygenie\.lovable\.app$/,
+  // Custom domain
+  /^https:\/\/availability\.brentwestbrook\.com$/,
+  // Local development
+  /^http:\/\/localhost:\d+$/,
+  // Lovable preview URLs (various formats)
+  /^https:\/\/[a-f0-9-]+\.lovable\.app$/,
+  /^https:\/\/[a-f0-9-]+\.lovableproject\.com$/,
+  /^https:\/\/id-preview--[a-f0-9-]+\.lovable\.app$/,
+];
 ```
 
-### 3. Add Debug Logging to OAuth Callback Functions
+This change will be applied to both:
+1. `supabase/functions/google-oauth-start/index.ts` (lines 17-26)
+2. `supabase/functions/microsoft-oauth-start/index.ts` (lines 17-26)
 
-Log the entire flow to identify where failures occur:
+## Why This Fixes The Issue
 
-```typescript
-console.log('OAuth callback received:', {
-  hasCode: !!code,
-  hasState: !!state,
-  error,
-  origin,
-  userId,
-});
+The origin validation currently only allows:
+- `availabilitygenie.lovable.app` (published Lovable domain)
+- `localhost:*` (local development)
+- Various Lovable preview URL formats
 
-// After token exchange
-console.log('Token exchange result:', {
-  success: !tokens.error,
-  error: tokens.error,
-  hasAccessToken: !!tokens.access_token,
-  hasRefreshToken: !!tokens.refresh_token,
-});
+Your custom domain `availability.brentwestbrook.com` doesn't match any of these patterns, so the request is rejected with a 400 error.
 
-// After database upsert
-console.log('Database upsert result:', {
-  success: !dbError,
-  error: dbError?.message,
-});
-```
+By adding your custom domain to the allowed patterns, the OAuth flow will proceed correctly.
 
-### 4. Improve Error Messages in Frontend
+## Deployment
 
-Update the useCalendarConnections hook to show more specific errors:
+After updating the files, both edge functions will be redeployed automatically.
 
-```typescript
-} catch (e) {
-  const errorMessage = e instanceof Error ? e.message : 'Unknown error';
-  console.error('Failed to start Google OAuth:', e);
-  setError(`Failed to connect to Google Calendar: ${errorMessage}`);
-  setLoadingProvider(null);
-}
-```
-
-## Why This Will Fix the Issue
-
-1. **Pattern matching for origins** will accept all valid Lovable preview URL formats without needing to enumerate each one
-2. **Debug logging** will help identify exactly where the OAuth flow is failing
-3. **Better error messages** will surface the actual issue to users and developers
-
-## External Configuration Required
-
-After deploying the code changes, verify/add these redirect URIs in the OAuth provider consoles:
-
-**Google Cloud Console** (APIs & Services > Credentials > OAuth 2.0 Client IDs):
-- Add: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/google-oauth-callback`
-
-**Microsoft Azure Portal** (App registrations > Authentication > Redirect URIs):
-- Add: `https://qrermcbuxylxwbimdmkt.supabase.co/functions/v1/microsoft-oauth-callback`
-- Platform: Web
-- Type: Redirect URI
-
-## Testing Steps
-
-After deploying:
-1. Check edge function logs for debug output when clicking Connect
-2. Verify the OAuth popup opens and shows Google/Microsoft login
-3. After completing authentication, check callback function logs
-4. Verify `calendar_connections` table has a new entry
-5. Verify events appear on the calendar
