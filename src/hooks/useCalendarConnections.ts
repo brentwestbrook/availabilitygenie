@@ -18,8 +18,9 @@ export function useCalendarConnections() {
     if (!user) return;
 
     try {
+      // Use the safe view that excludes sensitive token columns
       const { data, error: dbError } = await supabase
-        .from('calendar_connections')
+        .from('calendar_connections_safe')
         .select('provider, email')
         .eq('user_id', user.id);
 
