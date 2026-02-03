@@ -10,7 +10,7 @@ export function useCalendarConnections() {
     { provider: 'microsoft', connected: false },
   ]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [loadingProvider, setLoadingProvider] = useState<'google' | 'microsoft' | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   // Load connections from database when user is authenticated
@@ -80,7 +80,7 @@ export function useCalendarConnections() {
   const fetchEventsForProvider = useCallback(async (provider: 'google' | 'microsoft') => {
     if (!session) return;
 
-    setIsLoading(true);
+    setLoadingProvider(provider);
     try {
       const now = new Date();
       const startOfWeek = new Date(now);
@@ -116,7 +116,7 @@ export function useCalendarConnections() {
       console.error(`Failed to fetch ${provider} events:`, e);
       setError(`Failed to fetch ${provider} events`);
     } finally {
-      setIsLoading(false);
+      setLoadingProvider(null);
     }
   }, [session]);
 
@@ -126,7 +126,7 @@ export function useCalendarConnections() {
       return;
     }
 
-    setIsLoading(true);
+    setLoadingProvider('google');
     setError(null);
 
     try {
@@ -141,7 +141,7 @@ export function useCalendarConnections() {
     } catch (e) {
       console.error('Failed to start Google OAuth:', e);
       setError('Failed to connect to Google Calendar');
-      setIsLoading(false);
+      setLoadingProvider(null);
     }
   }, [session]);
 
@@ -151,7 +151,7 @@ export function useCalendarConnections() {
       return;
     }
 
-    setIsLoading(true);
+    setLoadingProvider('microsoft');
     setError(null);
 
     try {
@@ -166,7 +166,7 @@ export function useCalendarConnections() {
     } catch (e) {
       console.error('Failed to start Microsoft OAuth:', e);
       setError('Failed to connect to Microsoft Outlook');
-      setIsLoading(false);
+      setLoadingProvider(null);
     }
   }, [session]);
 
@@ -203,7 +203,6 @@ export function useCalendarConnections() {
   const refreshEvents = useCallback(async () => {
     if (!user) return;
 
-    setIsLoading(true);
     setError(null);
 
     try {
@@ -211,11 +210,12 @@ export function useCalendarConnections() {
         .filter(c => c.connected)
         .map(c => c.provider);
 
-      await Promise.all(connectedProviders.map(provider => fetchEventsForProvider(provider)));
+      // Note: This will set loading for each provider sequentially
+      for (const provider of connectedProviders) {
+        await fetchEventsForProvider(provider);
+      }
     } catch (err) {
       setError('Failed to refresh events. Please try again.');
-    } finally {
-      setIsLoading(false);
     }
   }, [user, connections, fetchEventsForProvider]);
 
@@ -225,7 +225,7 @@ export function useCalendarConnections() {
   return {
     connections,
     events,
-    isLoading,
+    loadingProvider,
     error,
     connectGoogle,
     connectMicrosoft,
