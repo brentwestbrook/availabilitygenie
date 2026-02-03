@@ -1,73 +1,68 @@
-# Welcome to your Lovable project
+# availabilitygenie
 
-## Project info
+A calendar availability sharing tool that converts your free time into natural language.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+## What it does
 
-## How can I edit this code?
+Connect your Google Calendar or Outlook, select open time slots by dragging across a week view, and get shareable text like:
 
-There are several ways of editing your application.
+> "I'm available Wednesday 2pm–5pm EST, Thursday 9am–12pm EST, or Friday 1pm–4pm EST."
 
-**Use Lovable**
+Built because scheduling back-and-forth over email wastes time. This makes it faster.
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+## Stack
 
-Changes made via Lovable will be committed automatically to this repo.
+- React + TypeScript
+- Vite for build
+- Supabase for auth and calendar OAuth
+- shadcn/ui + Tailwind for components
+- date-fns for time manipulation
 
-**Use your preferred IDE**
-
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
+## Setup
 
 ```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+git clone https://github.com/brentwestbrook/availabilitygenie.git
+cd availabilitygenie
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+### Environment variables
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+Create a `.env` file with:
 
-**Use GitHub Codespaces**
+```
+VITE_SUPABASE_URL=your_supabase_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+```
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+You'll need Supabase configured with Google and Microsoft OAuth providers for calendar integration.
 
-## What technologies are used for this project?
+## How it works
 
-This project is built with:
+1. OAuth flow authenticates with Google/Microsoft
+2. Calendar events fetch via their respective APIs
+3. Week view shows busy blocks
+4. Click-drag selects free time (30-minute increments)
+5. Natural language generator merges adjacent slots and formats readable text
+6. Copy to clipboard, paste in email
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+The core logic lives in:
+- `useCalendarConnections.ts` - OAuth + event fetching
+- `useCalendarSelection.ts` - Drag selection state
+- `useAvailabilityText.ts` - Time slot → natural language conversion
 
-## How can I deploy this project?
+## Deploy
 
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
+Deployed via [Lovable](https://lovable.dev). Push to this repo auto-deploys.
 
-## Can I connect a custom domain to my Lovable project?
+Or build locally:
+```sh
+npm run build
+```
 
-Yes, you can!
+Static output in `/dist`.
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## License
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+MIT
