@@ -19,7 +19,7 @@ const Index = () => {
   const {
     connections,
     events,
-    isLoading,
+    loadingProvider,
     error,
     connectGoogle,
     connectMicrosoft,
@@ -74,7 +74,7 @@ const Index = () => {
           <div className="lg:col-span-1 space-y-4">
             <ConnectionPanel
               connections={connections}
-              isLoading={isLoading}
+              loadingProvider={loadingProvider}
               onConnectGoogle={connectGoogle}
               onConnectMicrosoft={connectMicrosoft}
               onDisconnect={disconnectProvider}
@@ -94,7 +94,7 @@ const Index = () => {
               weekStart={weekStart}
               onWeekChange={setWeekStart}
               onRefresh={refreshEvents}
-              isLoading={isLoading}
+              isLoading={loadingProvider !== null}
             />
             <CalendarGrid
               weekStart={weekStart}

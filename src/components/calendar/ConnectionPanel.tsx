@@ -5,7 +5,7 @@ import { CheckCircle2, Circle, Loader2 } from 'lucide-react';
 
 interface ConnectionPanelProps {
   connections: CalendarConnection[];
-  isLoading: boolean;
+  loadingProvider: 'google' | 'microsoft' | null;
   onConnectGoogle: () => void;
   onConnectMicrosoft: () => void;
   onDisconnect: (provider: 'google' | 'microsoft') => void;
@@ -13,7 +13,7 @@ interface ConnectionPanelProps {
 
 export function ConnectionPanel({
   connections,
-  isLoading,
+  loadingProvider,
   onConnectGoogle,
   onConnectMicrosoft,
   onDisconnect,
@@ -57,10 +57,10 @@ export function ConnectionPanel({
             <Button
               size="sm"
               onClick={onConnectGoogle}
-              disabled={isLoading}
+              disabled={loadingProvider !== null}
               className="bg-google hover:bg-google/90"
             >
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Connect'}
+              {loadingProvider === 'google' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Connect'}
             </Button>
           )}
         </div>
@@ -92,10 +92,10 @@ export function ConnectionPanel({
             <Button
               size="sm"
               onClick={onConnectMicrosoft}
-              disabled={isLoading}
+              disabled={loadingProvider !== null}
               className="bg-microsoft hover:bg-microsoft/90"
             >
-              {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Connect'}
+              {loadingProvider === 'microsoft' ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Connect'}
             </Button>
           )}
         </div>
