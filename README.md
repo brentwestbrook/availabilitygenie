@@ -54,14 +54,17 @@ The core logic lives in:
 
 ## Deploy
 
-Deployed via [Lovable](https://lovable.dev). Push to this repo auto-deploys.
+Build the static files and deploy to any hosting service:
 
-Or build locally:
 ```sh
 npm run build
 ```
 
-Static output in `/dist`.
+Static output in `/dist` can be hosted on:
+- Azure Static Web Apps
+- Netlify
+- Vercel
+- Any static file host
 
 ## License
 
