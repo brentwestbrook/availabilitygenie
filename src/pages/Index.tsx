@@ -7,9 +7,10 @@ import { AvailabilityPanel } from '@/components/calendar/AvailabilityPanel';
 import { InstructionsBanner } from '@/components/calendar/InstructionsBanner';
 import { useCalendarSelection } from '@/hooks/useCalendarSelection';
 import { useCalendarConnections } from '@/hooks/useCalendarConnections';
+import { useExternalCalendar } from '@/hooks/useExternalCalendar';
 import { useAvailabilityText } from '@/hooks/useAvailabilityText';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, CheckCircle } from 'lucide-react';
 
 const Index = () => {
   const [weekStart, setWeekStart] = useState(() => 
@@ -26,6 +27,14 @@ const Index = () => {
     disconnectProvider,
     refreshEvents,
   } = useCalendarConnections();
+
+  // Get events from browser extension
+  const { externalEvents, lastSync } = useExternalCalendar();
+
+  // Combine OAuth events with external events
+  const allEvents = useMemo(() => {
+    return [...events, ...externalEvents];
+  }, [events, externalEvents]);
 
   const {
     selectedSlots,
@@ -59,6 +68,16 @@ const Index = () => {
 
         {/* Instructions */}
         <InstructionsBanner />
+
+        {/* External calendar sync status */}
+        {lastSync && externalEvents.length > 0 && (
+          <Alert>
+            <CheckCircle className="h-4 w-4" />
+            <AlertDescription>
+              Synced {externalEvents.length} events from Outlook Bridge at {lastSync.toLocaleTimeString()}
+            </AlertDescription>
+          </Alert>
+        )}
 
         {/* Error state */}
         {error && (
@@ -98,7 +117,7 @@ const Index = () => {
             />
             <CalendarGrid
               weekStart={weekStart}
-              events={events}
+              events={allEvents}
               selectedSlots={selectedSlots}
               selectionRange={selectionRange}
               onMouseDown={handleMouseDown}
@@ -107,7 +126,7 @@ const Index = () => {
             />
 
             {/* Legend */}
-            <div className="flex items-center gap-6 mt-4 text-sm text-muted-foreground justify-center">
+            <div className="flex items-center gap-6 mt-4 text-sm text-muted-foreground justify-center flex-wrap">
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded bg-google" />
                 <span>Google Calendar</span>
@@ -116,6 +135,12 @@ const Index = () => {
                 <div className="w-3 h-3 rounded bg-microsoft" />
                 <span>Microsoft Outlook</span>
               </div>
+              {externalEvents.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded bg-blue-500" />
+                  <span>Outlook Bridge</span>
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded bg-selection" />
                 <span>Selected free time</span>
