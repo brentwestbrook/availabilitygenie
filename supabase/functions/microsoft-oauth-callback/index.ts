@@ -138,7 +138,7 @@ serve(async (req) => {
         email: userInfo.mail || userInfo.userPrincipalName,
         updated_at: new Date().toISOString(),
       }, {
-        onConflict: 'user_id,provider',
+        onConflict: 'user_id,provider,email',
       });
 
     console.log('Microsoft OAuth callback: Database upsert result', {

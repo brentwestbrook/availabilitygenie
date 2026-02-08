@@ -136,7 +136,7 @@ serve(async (req) => {
         email: userInfo.email,
         updated_at: new Date().toISOString(),
       }, {
-        onConflict: 'user_id,provider',
+        onConflict: 'user_id,provider,email',
       });
 
     console.log('Google OAuth callback: Database upsert result', {
