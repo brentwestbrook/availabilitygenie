@@ -1,65 +1,50 @@
 
-# Fix: Multiple Google Calendar Connections
+
+# Fix: Drop Old Unique Constraint Blocking Multiple Accounts
 
 ## Problem Identified
 
-When connecting a second Google account, the first one gets disconnected. This happens because the OAuth callback functions have an outdated `onConflict` clause that doesn't match the updated database constraint.
+The database error occurs because **two unique constraints** exist on the `calendar_connections` table:
 
-## Root Cause
+| Constraint Name | Columns | Status |
+|-----------------|---------|--------|
+| `calendar_connections_user_provider_unique` | `(user_id, provider)` | OLD - blocking new accounts |
+| `calendar_connections_user_id_provider_email_key` | `(user_id, provider, email)` | NEW - correct |
 
-The database was migrated to use a unique constraint on `(user_id, provider, email)` to support multiple accounts per provider. However, the OAuth callback functions still specify:
-
-```
-onConflict: 'user_id,provider'
-```
-
-This mismatch causes the upsert to behave incorrectly, replacing the first connection instead of creating a new one.
+The previous migration attempted to drop a constraint named `calendar_connections_user_id_provider_key`, but the actual constraint is named `calendar_connections_user_provider_unique`. Since `DROP CONSTRAINT IF EXISTS` silently does nothing when the constraint doesn't exist, the old constraint remained.
 
 ## Solution
 
-Update both OAuth callback edge functions to use the correct conflict columns that match the database constraint.
+Create a new database migration to drop the correctly-named old constraint.
 
 ## Changes Required
 
-### 1. Update Google OAuth Callback
-**File:** `supabase/functions/google-oauth-callback/index.ts`
+### Database Migration
 
-Change line 139 from:
-```typescript
-onConflict: 'user_id,provider',
+Create a migration with the following SQL:
+
+```sql
+-- Drop the OLD unique constraint that blocks multiple accounts per provider
+-- The previous migration tried to drop 'calendar_connections_user_id_provider_key' 
+-- but the actual constraint name is 'calendar_connections_user_provider_unique'
+ALTER TABLE public.calendar_connections 
+DROP CONSTRAINT IF EXISTS calendar_connections_user_provider_unique;
 ```
-To:
-```typescript
-onConflict: 'user_id,provider,email',
-```
-
-### 2. Update Microsoft OAuth Callback  
-**File:** `supabase/functions/microsoft-oauth-callback/index.ts`
-
-Change line 141 from:
-```typescript
-onConflict: 'user_id,provider',
-```
-To:
-```typescript
-onConflict: 'user_id,provider,email',
-```
-
-### 3. Deploy Edge Functions
-Deploy both updated callback functions to apply the fix.
-
-## Expected Behavior After Fix
-
-- Connecting a **new** Google/Microsoft account will create a new database row
-- Re-connecting an **existing** account (same email) will update that row's tokens
-- Multiple accounts from the same provider will coexist correctly
 
 ## Technical Details
 
-The upsert operation needs to match the database's unique constraint to determine whether to INSERT or UPDATE. With the corrected `onConflict` clause:
+The edge function logs confirm the issue:
 
-| Scenario | Action |
-|----------|--------|
-| First Google account (user@gmail.com) | INSERT new row |
-| Second Google account (other@gmail.com) | INSERT new row (different email) |
-| Reconnect first account (user@gmail.com) | UPDATE existing row (same email) |
+```
+duplicate key value violates unique constraint "calendar_connections_user_provider_unique"
+Key (user_id, provider)=(7c604933-..., google) already exists.
+```
+
+The `onConflict: 'user_id,provider,email'` in the edge functions is correct, but PostgreSQL's `upsert` still fails because the **insert** attempt violates the old `(user_id, provider)` unique constraint before the conflict resolution logic can run.
+
+## Expected Behavior After Fix
+
+- Connecting a **new** Google/Microsoft account will INSERT a new row
+- Reconnecting an **existing** account (same email) will UPDATE that row
+- Multiple accounts from the same provider will work correctly
+
