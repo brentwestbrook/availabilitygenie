@@ -13,9 +13,9 @@ export interface TimeSlot {
 }
 
 export interface CalendarConnection {
+  id: string;
   provider: 'google' | 'microsoft';
-  connected: boolean;
-  email?: string;
+  email: string;
 }
 
 export interface SelectionState {

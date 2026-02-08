@@ -5,10 +5,7 @@ import { useAuth } from '@/hooks/useAuth';
 
 export function useCalendarConnections() {
   const { user, session } = useAuth();
-  const [connections, setConnections] = useState<CalendarConnection[]>([
-    { provider: 'google', connected: false },
-    { provider: 'microsoft', connected: false },
-  ]);
+  const [connections, setConnections] = useState<CalendarConnection[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loadingProvider, setLoadingProvider] = useState<'google' | 'microsoft' | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -18,10 +15,9 @@ export function useCalendarConnections() {
     if (!user) return;
 
     try {
-      // Use the safe view that excludes sensitive token columns
       const { data, error: dbError } = await supabase
         .from('calendar_connections_safe')
-        .select('provider, email')
+        .select('id, provider, email')
         .eq('user_id', user.id);
 
       if (dbError) {
@@ -29,26 +25,69 @@ export function useCalendarConnections() {
         return;
       }
 
-      setConnections(prev =>
-        prev.map(c => {
-          const match = data?.find(d => d.provider === c.provider);
-          if (match) {
-            return { ...c, connected: true, email: match.email ?? undefined };
-          }
-          return { ...c, connected: false, email: undefined };
-        })
-      );
+      const loadedConnections: CalendarConnection[] = (data || []).map(d => ({
+        id: d.id!,
+        provider: d.provider as 'google' | 'microsoft',
+        email: d.email!,
+      }));
 
-      // Fetch events for connected calendars
-      if (data && data.length > 0) {
-        for (const conn of data) {
-          await fetchEventsForProvider(conn.provider as 'google' | 'microsoft');
-        }
+      setConnections(loadedConnections);
+
+      // Fetch events for all connected calendars
+      if (loadedConnections.length > 0) {
+        await fetchAllEvents(loadedConnections);
       }
     } catch (e) {
       console.error('Failed to load connections:', e);
     }
   }, [user]);
+
+  // Fetch events for all connections
+  const fetchAllEvents = useCallback(async (conns: CalendarConnection[]) => {
+    if (!session) return;
+
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const endDate = new Date(startOfWeek);
+    endDate.setDate(startOfWeek.getDate() + 28);
+
+    const allNewEvents: CalendarEvent[] = [];
+
+    for (const conn of conns) {
+      try {
+        const { data, error } = await supabase.functions.invoke('calendar-events', {
+          body: {
+            provider: conn.provider,
+            connectionId: conn.id,
+            startDate: startOfWeek.toISOString(),
+            endDate: endDate.toISOString(),
+          },
+        });
+
+        if (error) {
+          console.error(`Failed to fetch events for ${conn.email}:`, error);
+          continue;
+        }
+
+        const newEvents: CalendarEvent[] = (data.events || []).map((e: any) => ({
+          id: `${conn.id}-${e.id}`,
+          title: e.title,
+          start: new Date(e.start),
+          end: new Date(e.end),
+          source: conn.provider,
+        }));
+
+        allNewEvents.push(...newEvents);
+      } catch (e) {
+        console.error(`Failed to fetch events for ${conn.email}:`, e);
+      }
+    }
+
+    setEvents(allNewEvents);
+  }, [session]);
 
   // Check for OAuth callback on mount
   useEffect(() => {
@@ -64,7 +103,6 @@ export function useCalendarConnections() {
     }
 
     if (oauthSuccess) {
-      // Reload connections from database after successful OAuth
       loadConnections();
       window.history.replaceState({}, '', window.location.pathname);
     }
@@ -74,52 +112,11 @@ export function useCalendarConnections() {
   useEffect(() => {
     if (user) {
       loadConnections();
+    } else {
+      setConnections([]);
+      setEvents([]);
     }
   }, [user, loadConnections]);
-
-  const fetchEventsForProvider = useCallback(async (provider: 'google' | 'microsoft') => {
-    if (!session) return;
-
-    setLoadingProvider(provider);
-    try {
-      const now = new Date();
-      const startOfWeek = new Date(now);
-      startOfWeek.setDate(now.getDate() - now.getDay());
-      startOfWeek.setHours(0, 0, 0, 0);
-
-      // Fetch 4 weeks (current week + 3 following weeks)
-      const endDate = new Date(startOfWeek);
-      endDate.setDate(startOfWeek.getDate() + 28);
-
-      const { data, error } = await supabase.functions.invoke('calendar-events', {
-        body: {
-          provider,
-          startDate: startOfWeek.toISOString(),
-          endDate: endDate.toISOString(),
-        },
-      });
-
-      if (error) throw error;
-
-      const newEvents: CalendarEvent[] = (data.events || []).map((e: any) => ({
-        id: e.id,
-        title: e.title,
-        start: new Date(e.start),
-        end: new Date(e.end),
-        source: provider,
-      }));
-
-      setEvents(prev => {
-        const filtered = prev.filter(e => e.source !== provider);
-        return [...filtered, ...newEvents];
-      });
-    } catch (e) {
-      console.error(`Failed to fetch ${provider} events:`, e);
-      setError(`Failed to fetch ${provider} events`);
-    } finally {
-      setLoadingProvider(null);
-    }
-  }, [session]);
 
   const openOAuthPopup = useCallback((url: string, provider: 'google' | 'microsoft') => {
     const width = 600;
@@ -139,7 +136,6 @@ export function useCalendarConnections() {
       return;
     }
 
-    // Monitor popup for completion
     const pollInterval = setInterval(() => {
       try {
         if (popup.closed) {
@@ -147,7 +143,6 @@ export function useCalendarConnections() {
           setLoadingProvider(null);
           loadConnections();
         } else if (popup.location?.href?.includes(window.location.origin)) {
-          // Popup redirected back to our domain - OAuth complete
           const url = new URL(popup.location.href);
           const oauthError = url.searchParams.get('oauth_error');
           if (oauthError) {
@@ -159,11 +154,10 @@ export function useCalendarConnections() {
           loadConnections();
         }
       } catch (e) {
-        // Cross-origin access blocked until redirect back to our domain - expected behavior
+        // Cross-origin access blocked until redirect back to our domain
       }
     }, 500);
 
-    // Cleanup after 5 minutes (timeout)
     setTimeout(() => {
       clearInterval(pollInterval);
       if (!popup.closed) {
@@ -225,15 +219,15 @@ export function useCalendarConnections() {
     }
   }, [session, openOAuthPopup]);
 
-  const disconnectProvider = useCallback(async (provider: 'google' | 'microsoft') => {
+  const disconnectConnection = useCallback(async (connectionId: string) => {
     if (!user) return;
 
     try {
       const { error: dbError } = await supabase
         .from('calendar_connections')
         .delete()
-        .eq('user_id', user.id)
-        .eq('provider', provider);
+        .eq('id', connectionId)
+        .eq('user_id', user.id);
 
       if (dbError) {
         console.error('Failed to disconnect:', dbError);
@@ -241,14 +235,8 @@ export function useCalendarConnections() {
         return;
       }
 
-      setConnections(prev =>
-        prev.map(c =>
-          c.provider === provider
-            ? { ...c, connected: false, email: undefined }
-            : c
-        )
-      );
-      setEvents(prev => prev.filter(e => e.source !== provider));
+      setConnections(prev => prev.filter(c => c.id !== connectionId));
+      setEvents(prev => prev.filter(e => !e.id.startsWith(`${connectionId}-`)));
     } catch (e) {
       console.error('Failed to disconnect:', e);
       setError('Failed to disconnect calendar');
@@ -256,37 +244,34 @@ export function useCalendarConnections() {
   }, [user]);
 
   const refreshEvents = useCallback(async () => {
-    if (!user) return;
+    if (!user || connections.length === 0) return;
 
     setError(null);
+    setLoadingProvider('google'); // Show loading state
 
     try {
-      const connectedProviders = connections
-        .filter(c => c.connected)
-        .map(c => c.provider);
-
-      // Note: This will set loading for each provider sequentially
-      for (const provider of connectedProviders) {
-        await fetchEventsForProvider(provider);
-      }
+      await fetchAllEvents(connections);
     } catch (err) {
       setError('Failed to refresh events. Please try again.');
+    } finally {
+      setLoadingProvider(null);
     }
-  }, [user, connections, fetchEventsForProvider]);
+  }, [user, connections, fetchAllEvents]);
 
-  const isGoogleConnected = connections.find(c => c.provider === 'google')?.connected ?? false;
-  const isMicrosoftConnected = connections.find(c => c.provider === 'microsoft')?.connected ?? false;
+  // Computed values for convenience
+  const googleConnections = connections.filter(c => c.provider === 'google');
+  const microsoftConnections = connections.filter(c => c.provider === 'microsoft');
 
   return {
     connections,
+    googleConnections,
+    microsoftConnections,
     events,
     loadingProvider,
     error,
     connectGoogle,
     connectMicrosoft,
-    disconnectProvider,
+    disconnectConnection,
     refreshEvents,
-    isGoogleConnected,
-    isMicrosoftConnected,
   };
 }

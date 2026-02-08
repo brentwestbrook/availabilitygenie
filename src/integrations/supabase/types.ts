@@ -20,7 +20,7 @@ export type Database = {
           access_token_iv: string | null
           access_token_tag: string | null
           created_at: string
-          email: string | null
+          email: string
           id: string
           provider: string
           refresh_token: string | null
@@ -35,7 +35,7 @@ export type Database = {
           access_token_iv?: string | null
           access_token_tag?: string | null
           created_at?: string
-          email?: string | null
+          email: string
           id?: string
           provider: string
           refresh_token?: string | null
@@ -50,7 +50,7 @@ export type Database = {
           access_token_iv?: string | null
           access_token_tag?: string | null
           created_at?: string
-          email?: string | null
+          email?: string
           id?: string
           provider?: string
           refresh_token?: string | null
