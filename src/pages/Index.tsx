@@ -18,13 +18,14 @@ const Index = () => {
   );
 
   const {
-    connections,
+    googleConnections,
+    microsoftConnections,
     events,
     loadingProvider,
     error,
     connectGoogle,
     connectMicrosoft,
-    disconnectProvider,
+    disconnectConnection,
     refreshEvents,
   } = useCalendarConnections();
 
@@ -92,11 +93,12 @@ const Index = () => {
           {/* Sidebar */}
           <div className="lg:col-span-1 space-y-4">
             <ConnectionPanel
-              connections={connections}
+              googleConnections={googleConnections}
+              microsoftConnections={microsoftConnections}
               loadingProvider={loadingProvider}
               onConnectGoogle={connectGoogle}
               onConnectMicrosoft={connectMicrosoft}
-              onDisconnect={disconnectProvider}
+              onDisconnect={disconnectConnection}
             />
             <AvailabilityPanel
               selectedSlots={selectedSlots}

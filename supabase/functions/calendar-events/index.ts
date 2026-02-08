@@ -43,7 +43,7 @@ serve(async (req) => {
 
     const userId = user.id;
 
-    const { provider, startDate, endDate } = await req.json();
+    const { provider, connectionId, startDate, endDate } = await req.json();
 
     // Validate provider
     if (!provider || !['google', 'microsoft'].includes(provider)) {
@@ -86,13 +86,18 @@ serve(async (req) => {
     // Use service role client to fetch connection (bypasses RLS)
     const supabaseAdmin = createClient(supabaseUrl, supabaseServiceRoleKey);
 
-    // Fetch the user's calendar connection from the database
-    const { data: connection, error: connError } = await supabaseAdmin
+    // Build query - support both connectionId (new) and provider-only (legacy)
+    let query = supabaseAdmin
       .from('calendar_connections')
       .select('id, access_token, access_token_iv, access_token_tag, refresh_token, refresh_token_iv, refresh_token_tag, token_expires_at')
       .eq('user_id', userId)
-      .eq('provider', provider)
-      .single();
+      .eq('provider', provider);
+    
+    if (connectionId) {
+      query = query.eq('id', connectionId);
+    }
+
+    const { data: connection, error: connError } = await query.single();
 
     if (connError || !connection) {
       console.error('Connection fetch error:', connError?.message || 'No connection found');
