@@ -3,7 +3,7 @@ export interface CalendarEvent {
   title: string;
   start: Date;
   end: Date;
-  source: 'google' | 'microsoft';
+  source: 'google' | 'microsoft' | 'outlook-bridge';
 }
 
 export interface TimeSlot {
@@ -22,6 +22,16 @@ export interface SelectionState {
   isSelecting: boolean;
   startSlot: { day: number; slotIndex: number } | null;
   currentSlot: { day: number; slotIndex: number } | null;
+}
+
+// External event from browser extension
+export interface ExternalCalendarEvent {
+  start: string; // Time in HH:mm format
+  end: string;   // Time in HH:mm format
+  day: string | null;
+  date: string | null;
+  title: string;
+  fullLabel?: string;
 }
 
 // 30-minute slot configuration
