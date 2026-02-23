@@ -56,6 +56,8 @@ export function useCalendarConnections() {
 
     const allNewEvents: CalendarEvent[] = [];
 
+    const expiredConnections: string[] = [];
+
     for (const conn of conns) {
       try {
         const { data, error } = await supabase.functions.invoke('calendar-events', {
@@ -68,7 +70,20 @@ export function useCalendarConnections() {
         });
 
         if (error) {
+          // Check if it's a token expiration error
+          try {
+            const errorData = JSON.parse(error.message || '{}');
+            if (errorData.code === 'TOKEN_EXPIRED') {
+              expiredConnections.push(conn.email);
+              continue;
+            }
+          } catch {}
           console.error(`Failed to fetch events for ${conn.email}:`, error);
+          continue;
+        }
+
+        if (data?.code === 'TOKEN_EXPIRED') {
+          expiredConnections.push(conn.email);
           continue;
         }
 
@@ -84,6 +99,10 @@ export function useCalendarConnections() {
       } catch (e) {
         console.error(`Failed to fetch events for ${conn.email}:`, e);
       }
+    }
+
+    if (expiredConnections.length > 0) {
+      setError(`Token expired for: ${expiredConnections.join(', ')}. Please disconnect and reconnect these accounts.`);
     }
 
     setEvents(allNewEvents);
