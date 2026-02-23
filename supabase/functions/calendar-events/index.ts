@@ -165,8 +165,18 @@ serve(async (req) => {
           accessToken = newTokens.access_token;
           console.log('Token refreshed successfully');
         } else {
-          console.error('Failed to refresh token');
+          console.error('Failed to refresh token, connection needs re-authorization');
+          return new Response(
+            JSON.stringify({ error: 'Token expired. Please disconnect and reconnect this calendar.', code: 'TOKEN_EXPIRED' }),
+            { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+          );
         }
+      } else {
+        console.error('No refresh token available');
+        return new Response(
+          JSON.stringify({ error: 'Token expired. Please disconnect and reconnect this calendar.', code: 'TOKEN_EXPIRED' }),
+          { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
       }
     }
 
