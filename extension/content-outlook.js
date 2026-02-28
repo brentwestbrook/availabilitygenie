@@ -42,9 +42,8 @@ function readCalendarFromDom() {
   const results = [];
   const seen = new Set();
 
-  // Time range pattern: "9:30 AM – 10:00 AM" (handles -, –, —, "to")
-  const TIME_RANGE = /(\d{1,2}:\d{2}\s*[AP]M)\s*[-–—]|(\d{1,2}:\d{2}\s*[AP]M)\s+to\s+(\d{1,2}:\d{2}\s*[AP]M)/i;
-  const TIME_RANGE_FULL = /(\d{1,2}:\d{2}\s*[AP]M)\s*[-–—]+\s*(\d{1,2}:\d{2}\s*[AP]M)/i;
+  // Time range pattern: "9:30 AM – 10:00 AM" or "9:30 AM to 10:00 AM" (handles -, –, —, "to")
+  const TIME_RANGE_FULL = /(\d{1,2}:\d{2}\s*[AP]M)\s*(?:[-–—]+|\bto\b)\s*(\d{1,2}:\d{2}\s*[AP]M)/i;
   const SINGLE_TIME = /\d{1,2}:\d{2}\s*[AP]M/i;
 
   // Day name pattern used to find dates in labels
@@ -74,9 +73,11 @@ function readCalendarFromDom() {
     if (!start || !end) continue;
 
     // --- Extract title ---
-    // Prefer visible text content (trimmed, first non-empty line) over aria-label parsing
-    const visibleText = (el.textContent || '').replace(/\s+/g, ' ').trim();
-    let title = visibleText || stripTimeDateFromLabel(label, rangeMatch[0]);
+    // Strip the time range from textContent first — if the matched element is a
+    // time-only child span its textContent would otherwise become the title.
+    const rawText = (el.textContent || '').replace(/\s+/g, ' ').trim();
+    const visibleTitle = rawText.replace(TIME_RANGE_FULL, '').replace(SINGLE_TIME, '').replace(/\s+/g, ' ').trim();
+    let title = visibleTitle || stripTimeDateFromLabel(label, rangeMatch[0]);
     title = title.slice(0, 120) || 'Busy'; // guard against pathologically long strings
 
     // --- Extract date ---
