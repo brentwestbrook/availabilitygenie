@@ -1,11 +1,12 @@
 {
   "manifest_version": 3,
-  "name": "Availability Genie – Outlook Bridge",
+  "name": "Availability Genie \u2013 Outlook Bridge",
   "version": "1.0.0",
   "description": "Reads your Outlook Web App calendar and sends events directly to Availability Genie.",
   "permissions": [
     "tabs",
-    "scripting"
+    "scripting",
+    "alarms"
   ],
   "host_permissions": [
     "https://outlook.office.com/*",
@@ -51,7 +52,7 @@
     }
   ],
   "action": {
-    "default_title": "Sync Outlook → Availability Genie"
+    "default_title": "Sync Outlook \u2192 Availability Genie"
   },
   "commands": {
     "sync-and-focus": {

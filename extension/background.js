@@ -1,5 +1,5 @@
 /**
- * Background service worker for Availability Genie – Outlook Bridge.
+ * Background service worker for Availability Genie \u2013 Outlook Bridge.
  *
  * Coordinates two content scripts:
  *   - content-genie.js  (runs on the Availability Genie tab)
@@ -16,6 +16,18 @@
  * The extension icon (toolbar button) also triggers a sync manually.
  */
 
+console.log('[AG] Service worker started');
+
+// Keep the service worker alive so onCommand events are always received.
+// Chrome MV3 terminates idle service workers after ~30s; a periodic alarm
+// prevents that and ensures chrome.commands.onCommand fires reliably.
+chrome.alarms.create('keepalive', { periodInMinutes: 0.4 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === 'keepalive') {
+    // intentional no-op — existence of this listener keeps the worker alive
+  }
+});
+
 // Track which tab is the Genie tab so we can reply to it
 const genieTabs = new Set();
 
@@ -28,14 +40,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'FETCH_OUTLOOK_EVENTS') {
-    // Genie is requesting events — find an Outlook tab and ask it
+    // Genie is requesting events \u2014 find an Outlook tab and ask it
     if (senderTabId !== undefined) genieTabs.add(senderTabId);
     fetchFromOutlookTab(senderTabId);
     return;
   }
 
   if (message.type === 'OUTLOOK_EVENTS_READY') {
-    // content-outlook.js has returned events — relay to all Genie tabs
+    // content-outlook.js has returned events \u2014 relay to all Genie tabs
     const events = message.events || [];
     for (const tabId of genieTabs) {
       chrome.tabs.sendMessage(tabId, { type: 'RELAY_OUTLOOK_EVENTS', events }).catch(() => {
@@ -77,8 +89,9 @@ chrome.action.onClicked.addListener(async (tab) => {
   fetchFromOutlookTab(genieTabId);
 });
 
-// Keyboard shortcut: Ctrl+Shift+A — focus/open Genie tab then sync
+// Keyboard shortcut: Ctrl+Shift+A \u2014 focus/open Genie tab then sync
 chrome.commands.onCommand.addListener(async (command) => {
+  console.log('[AG] onCommand:', command);
   if (command !== 'sync-and-focus') return;
 
   try {
@@ -96,7 +109,7 @@ chrome.commands.onCommand.addListener(async (command) => {
     if (genieTab && genieTab.id !== undefined) {
       // chrome.tabs.update with active:true is sufficient to focus the tab.
       // chrome.windows.update is NOT used here because the "windows" permission
-      // is not declared in manifest.json — calling it would silently kill this
+      // is not declared in manifest.json \u2014 calling it would silently kill this
       // async handler before fetchFromOutlookTab is ever reached.
       await chrome.tabs.update(genieTab.id, { active: true });
       genieTabs.add(genieTab.id);
@@ -109,7 +122,7 @@ chrome.commands.onCommand.addListener(async (command) => {
       // the user can then click Read Outlook Calendar or press the shortcut again.
     }
   } catch (err) {
-    console.error('[Availability Genie] onCommand error:', err);
+    console.error('[AG] onCommand error:', err);
   }
 });
 
@@ -132,7 +145,7 @@ async function fetchFromOutlookTab(requestingTabId) {
   }
 
   if (!outlookTab || outlookTab.id === undefined) {
-    // No Outlook tab open — notify Genie
+    // No Outlook tab open \u2014 notify Genie
     if (requestingTabId !== undefined) {
       chrome.tabs.sendMessage(requestingTabId, {
         type: 'OUTLOOK_FETCH_ERROR',
