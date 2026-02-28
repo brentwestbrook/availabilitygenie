@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { CalendarEvent, ExternalCalendarEvent } from '@/types/calendar';
 import { startOfWeek } from 'date-fns';
+import { toast } from 'sonner';
 
 /**
  * Hook to receive calendar events from browser extension
@@ -78,6 +79,11 @@ export function useExternalCalendar() {
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Verify message is from our extension
+      if (event.data?.type === 'OUTLOOK_BRIDGE_ERROR' && event.data?.source === 'availabilitygenie-bridge') {
+        toast.error(event.data.error || 'Outlook Bridge: unknown error');
+        return;
+      }
+
       if (event.data?.type === 'OUTLOOK_EVENTS_IMPORTED' && event.data?.source === 'availabilitygenie-bridge') {
         console.log('Received events from Outlook Bridge:', event.data.events);
         console.log('Total events received:', event.data.events.length);
