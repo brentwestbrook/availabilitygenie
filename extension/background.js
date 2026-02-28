@@ -1,0 +1,101 @@
+/**
+ * Background service worker for Availability Genie – Outlook Bridge.
+ *
+ * Coordinates two content scripts:
+ *   - content-genie.js  (runs on the Availability Genie tab)
+ *   - content-outlook.js (runs on the Outlook Web App tab)
+ *
+ * Message flow:
+ *   1. Genie page fires window.postMessage({ type: 'READ_OUTLOOK_CALENDAR' })
+ *   2. content-genie.js forwards it here as { type: 'FETCH_OUTLOOK_EVENTS' }
+ *   3. We find the Outlook tab and tell content-outlook.js to fetch events
+ *   4. content-outlook.js fetches events from Microsoft Graph and replies
+ *   5. We relay the events back to the Genie tab via content-genie.js
+ *   6. content-genie.js injects them into the page with window.postMessage
+ *
+ * The extension icon (toolbar button) also triggers a sync manually.
+ */
+
+// Track which tab is the Genie tab so we can reply to it
+const genieTabs = new Set();
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  const senderTabId = sender.tab?.id;
+
+  if (message.type === 'GENIE_TAB_READY') {
+    if (senderTabId !== undefined) genieTabs.add(senderTabId);
+    return;
+  }
+
+  if (message.type === 'FETCH_OUTLOOK_EVENTS') {
+    // Genie is requesting events — find an Outlook tab and ask it
+    if (senderTabId !== undefined) genieTabs.add(senderTabId);
+    fetchFromOutlookTab(senderTabId);
+    return;
+  }
+
+  if (message.type === 'OUTLOOK_EVENTS_READY') {
+    // content-outlook.js has returned events — relay to all Genie tabs
+    const events = message.events || [];
+    for (const tabId of genieTabs) {
+      chrome.tabs.sendMessage(tabId, { type: 'RELAY_OUTLOOK_EVENTS', events }).catch(() => {
+        genieTabs.delete(tabId);
+      });
+    }
+    return;
+  }
+
+  if (message.type === 'OUTLOOK_FETCH_ERROR') {
+    for (const tabId of genieTabs) {
+      chrome.tabs.sendMessage(tabId, { type: 'OUTLOOK_FETCH_ERROR', error: message.error }).catch(() => {
+        genieTabs.delete(tabId);
+      });
+    }
+    return;
+  }
+});
+
+// When the toolbar icon is clicked, trigger a manual sync
+chrome.action.onClicked.addListener((tab) => {
+  if (tab.id !== undefined) genieTabs.add(tab.id);
+  fetchFromOutlookTab(tab.id);
+});
+
+async function fetchFromOutlookTab(requestingTabId) {
+  const outlookPatterns = [
+    'https://outlook.office.com/*',
+    'https://outlook.office365.com/*',
+    'https://outlook.live.com/*',
+  ];
+
+  let outlookTab = null;
+
+  for (const pattern of outlookPatterns) {
+    const tabs = await chrome.tabs.query({ url: pattern });
+    if (tabs.length > 0) {
+      outlookTab = tabs[0];
+      break;
+    }
+  }
+
+  if (!outlookTab || outlookTab.id === undefined) {
+    // No Outlook tab open — notify Genie
+    if (requestingTabId !== undefined) {
+      chrome.tabs.sendMessage(requestingTabId, {
+        type: 'OUTLOOK_FETCH_ERROR',
+        error: 'No Outlook tab found. Please open Outlook Web App in another tab and try again.',
+      }).catch(() => {});
+    }
+    return;
+  }
+
+  // Ask the Outlook content script to fetch events
+  chrome.tabs.sendMessage(outlookTab.id, { type: 'FETCH_CALENDAR_EVENTS' }).catch((err) => {
+    if (requestingTabId !== undefined) {
+      chrome.tabs.sendMessage(requestingTabId, {
+        type: 'OUTLOOK_FETCH_ERROR',
+        error: 'Could not communicate with the Outlook tab. Try reloading it.',
+      }).catch(() => {});
+    }
+  });
+}
