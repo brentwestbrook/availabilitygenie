@@ -53,6 +53,15 @@
   "action": {
     "default_title": "Sync Outlook → Availability Genie"
   },
+  "commands": {
+    "sync-and-focus": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+A",
+        "mac": "Command+Shift+A"
+      },
+      "description": "Sync Outlook calendar and open Availability Genie"
+    }
+  },
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
