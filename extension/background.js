@@ -66,6 +66,7 @@ async function fetchFromOutlookTab(requestingTabId) {
     'https://outlook.office.com/*',
     'https://outlook.office365.com/*',
     'https://outlook.live.com/*',
+    'https://outlook.cloud.microsoft/*',
   ];
 
   let outlookTab = null;
