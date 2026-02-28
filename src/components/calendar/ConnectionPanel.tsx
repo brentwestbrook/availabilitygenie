@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { CalendarConnection } from '@/types/calendar';
-import { Loader2, Plus, X } from 'lucide-react';
+import { Loader2, Plus, X, RefreshCw } from 'lucide-react';
 
 interface ConnectionPanelProps {
   googleConnections: CalendarConnection[];
@@ -10,6 +10,9 @@ interface ConnectionPanelProps {
   onConnectGoogle: () => void;
   onConnectMicrosoft: () => void;
   onDisconnect: (connectionId: string) => void;
+  outlookBridgeLastSync: Date | null;
+  outlookBridgeEventCount: number;
+  onReadOutlookCalendar: () => void;
 }
 
 export function ConnectionPanel({
@@ -19,6 +22,9 @@ export function ConnectionPanel({
   onConnectGoogle,
   onConnectMicrosoft,
   onDisconnect,
+  outlookBridgeLastSync,
+  outlookBridgeEventCount,
+  onReadOutlookCalendar,
 }: ConnectionPanelProps) {
   return (
     <Card>
@@ -120,6 +126,29 @@ export function ConnectionPanel({
             </div>
           ) : (
             <p className="text-xs text-muted-foreground">No accounts connected</p>
+          )}
+        </div>
+        {/* Outlook Bridge Section */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="text-sm font-medium">Outlook Bridge</div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onReadOutlookCalendar}
+              disabled={loadingProvider !== null}
+              className="h-7 gap-1"
+            >
+              <RefreshCw className="h-3 w-3" />
+              Read Outlook Calendar
+            </Button>
+          </div>
+          {outlookBridgeLastSync ? (
+            <p className="text-xs text-muted-foreground">
+              {outlookBridgeEventCount} event{outlookBridgeEventCount !== 1 ? 's' : ''} synced at {outlookBridgeLastSync.toLocaleTimeString()}
+            </p>
+          ) : (
+            <p className="text-xs text-muted-foreground">No events synced yet</p>
           )}
         </div>
       </CardContent>

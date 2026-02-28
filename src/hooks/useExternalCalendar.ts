@@ -111,9 +111,14 @@ export function useExternalCalendar() {
     setLastSync(null);
   }, []);
 
+  const requestEvents = useCallback(() => {
+    window.postMessage({ type: 'READ_OUTLOOK_CALENDAR', source: 'availabilitygenie' }, '*');
+  }, []);
+
   return {
     externalEvents,
     lastSync,
-    clearExternalEvents
+    clearExternalEvents,
+    requestEvents,
   };
 }
