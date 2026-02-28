@@ -161,7 +161,7 @@ export function CalendarGrid({
                             event.source === 'google'
                               ? "bg-google text-google-foreground"
                               : event.source === 'outlook-bridge'
-                                ? "bg-blue-500 text-white"
+                                ? "bg-gray-300 text-gray-700"
                                 : "bg-microsoft text-microsoft-foreground",
                             eventIndex > 0 && "left-1/2"
                           )}

@@ -77,6 +77,38 @@ chrome.action.onClicked.addListener(async (tab) => {
   fetchFromOutlookTab(genieTabId);
 });
 
+// Keyboard shortcut: Ctrl+Shift+A — focus/open Genie tab then sync
+chrome.commands.onCommand.addListener(async (command) => {
+  if (command !== 'sync-and-focus') return;
+
+  const geniePatterns = [
+    'https://availability.brentwestbrook.com/*',
+    'http://localhost:*/*',
+  ];
+
+  let genieTab = null;
+  for (const pattern of geniePatterns) {
+    const found = await chrome.tabs.query({ url: pattern });
+    if (found.length > 0) { genieTab = found[0]; break; }
+  }
+
+  if (genieTab && genieTab.id !== undefined) {
+    // Focus the existing tab
+    await chrome.tabs.update(genieTab.id, { active: true });
+    if (genieTab.windowId !== undefined) {
+      await chrome.windows.update(genieTab.windowId, { focused: true });
+    }
+    genieTabs.add(genieTab.id);
+    fetchFromOutlookTab(genieTab.id);
+  } else {
+    // Open Genie in a new tab then sync once it's ready
+    const newTab = await chrome.tabs.create({ url: 'https://availability.brentwestbrook.com/' });
+    if (newTab.id !== undefined) genieTabs.add(newTab.id);
+    // content-genie.js will send GENIE_TAB_READY when the page loads;
+    // the user can then click Read Outlook Calendar or press the shortcut again.
+  }
+});
+
 async function fetchFromOutlookTab(requestingTabId) {
   const outlookPatterns = [
     'https://outlook.office.com/*',

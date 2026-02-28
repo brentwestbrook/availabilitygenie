@@ -142,7 +142,7 @@ const Index = () => {
               </div>
               {externalEvents.length > 0 && (
                 <div className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded bg-blue-500" />
+                  <div className="w-3 h-3 rounded bg-gray-300" />
                   <span>Outlook Bridge</span>
                 </div>
               )}
