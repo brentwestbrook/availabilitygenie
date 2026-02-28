@@ -109,7 +109,8 @@ export function useExternalCalendar() {
         
         setExternalEvents(convertedEvents);
         setLastSync(new Date());
-        
+        toast.success(`Sync successful — ${convertedEvents.length} event${convertedEvents.length === 1 ? '' : 's'} synced.`);
+
         console.log('State updated with', convertedEvents.length, 'events');
       }
     };
