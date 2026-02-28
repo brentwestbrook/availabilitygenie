@@ -55,10 +55,26 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// When the toolbar icon is clicked, trigger a manual sync
-chrome.action.onClicked.addListener((tab) => {
-  if (tab.id !== undefined) genieTabs.add(tab.id);
-  fetchFromOutlookTab(tab.id);
+// When the toolbar icon is clicked, trigger a manual sync.
+// Find the open Genie tab by URL so errors are displayed there regardless of
+// which tab was active when the icon was clicked.
+chrome.action.onClicked.addListener(async (tab) => {
+  const geniePatterns = [
+    'https://availability.brentwestbrook.com/*',
+    'http://localhost:*/*',
+  ];
+
+  let genieTabId = tab.id; // fallback: the clicked tab
+  for (const pattern of geniePatterns) {
+    const found = await chrome.tabs.query({ url: pattern });
+    if (found.length > 0 && found[0].id !== undefined) {
+      genieTabId = found[0].id;
+      break;
+    }
+  }
+
+  if (genieTabId !== undefined) genieTabs.add(genieTabId);
+  fetchFromOutlookTab(genieTabId);
 });
 
 async function fetchFromOutlookTab(requestingTabId) {
