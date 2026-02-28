@@ -36,12 +36,15 @@ window.addEventListener('message', (event) => {
 // Receive events / errors relayed from the background worker
 chrome.runtime.onMessage.addListener((message) => {
   if (message.type === 'RELAY_OUTLOOK_EVENTS') {
-    // Inject events into the page so useExternalCalendar.ts handles them
+    // Inject events into the page so useExternalCalendar.ts handles them.
+    // weekOf is the earliest ISO date among the scraped events — the Genie app
+    // uses it to auto-navigate to the week the user was viewing in Outlook.
     window.postMessage(
       {
         type: 'OUTLOOK_EVENTS_IMPORTED',
         source: 'availabilitygenie-bridge',
         events: message.events,
+        weekOf: message.weekOf ?? null,
       },
       '*'
     );

@@ -4,12 +4,17 @@ import { startOfWeek } from 'date-fns';
 import { toast } from 'sonner';
 
 /**
- * Hook to receive calendar events from browser extension
- * Listens for postMessage events from the Outlook Bridge extension
+ * Hook to receive calendar events from browser extension.
+ * Listens for postMessage events from the Outlook Bridge extension.
+ *
+ * Returns targetWeekDate — the start-of-week Date derived from the Outlook
+ * view that was active when the sync ran. Index.tsx watches this to
+ * auto-navigate the calendar to the correct week.
  */
 export function useExternalCalendar() {
   const [externalEvents, setExternalEvents] = useState<CalendarEvent[]>([]);
   const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [targetWeekDate, setTargetWeekDate] = useState<Date | null>(null);
 
   const convertExternalEvent = useCallback((event: ExternalCalendarEvent, currentWeekStart: Date): CalendarEvent | null => {
     try {
@@ -30,9 +35,9 @@ export function useExternalCalendar() {
         const [year, month, day] = event.date.split('-').map(Number);
         startDate = new Date(year, month - 1, day, startHour, startMinute, 0, 0);
         endDate = new Date(year, month - 1, day, endHour, endMinute, 0, 0);
-        console.log('Used explicit date:', event.date, '→', startDate);
+        console.log('Used explicit date:', event.date, '\u2192', startDate);
       } else {
-        // Fall back to day-name offset relative to the current week
+        // Fall back to day-name offset relative to the synced week start
         let dayOffset = 0;
         if (event.day) {
           const dayMap: Record<string, number> = {
@@ -67,7 +72,7 @@ export function useExternalCalendar() {
         end: endDate,
         source: 'outlook-bridge' as const
       };
-      
+
       console.log('Successfully converted event:', converted);
       return converted;
     } catch (error) {
@@ -87,36 +92,48 @@ export function useExternalCalendar() {
       if (event.data?.type === 'OUTLOOK_EVENTS_IMPORTED' && event.data?.source === 'availabilitygenie-bridge') {
         console.log('Received events from Outlook Bridge:', event.data.events);
         console.log('Total events received:', event.data.events.length);
-        
-        const currentWeekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
-        console.log('Week start for conversion:', currentWeekStart);
-        
+
+        // Determine the week start to use for event placement and navigation.
+        // weekOf is the earliest ISO date among the scraped events — i.e. the
+        // week the user was viewing in Outlook. Fall back to today's week if
+        // no dated events were found.
+        let syncedWeekStart: Date;
+        if (event.data.weekOf) {
+          const [year, month, day] = (event.data.weekOf as string).split('-').map(Number);
+          syncedWeekStart = startOfWeek(new Date(year, month - 1, day), { weekStartsOn: 0 });
+          console.log('weekOf from Outlook:', event.data.weekOf, '\u2192 week start:', syncedWeekStart);
+        } else {
+          syncedWeekStart = startOfWeek(new Date(), { weekStartsOn: 0 });
+          console.log('No weekOf — falling back to current week start:', syncedWeekStart);
+        }
+
         const convertedEvents: CalendarEvent[] = [];
-        
+
         for (let i = 0; i < event.data.events.length; i++) {
           console.log(`\n--- Converting event ${i + 1}/${event.data.events.length} ---`);
-          const converted = convertExternalEvent(event.data.events[i], currentWeekStart);
+          const converted = convertExternalEvent(event.data.events[i], syncedWeekStart);
           if (converted) {
             convertedEvents.push(converted);
           } else {
             console.warn('Event conversion returned null for event:', event.data.events[i]);
           }
         }
-        
+
         console.log('\n=== CONVERSION COMPLETE ===');
         console.log('Total converted:', convertedEvents.length);
         console.log('Converted events:', convertedEvents);
-        
+
         setExternalEvents(convertedEvents);
         setLastSync(new Date());
-        toast.success(`Sync successful — ${convertedEvents.length} event${convertedEvents.length === 1 ? '' : 's'} synced.`);
+        setTargetWeekDate(syncedWeekStart);
+        toast.success(`Sync successful \u2014 ${convertedEvents.length} event${convertedEvents.length === 1 ? '' : 's'} synced.`);
 
         console.log('State updated with', convertedEvents.length, 'events');
       }
     };
 
     window.addEventListener('message', handleMessage);
-    
+
     return () => {
       window.removeEventListener('message', handleMessage);
     };
@@ -134,6 +151,7 @@ export function useExternalCalendar() {
   return {
     externalEvents,
     lastSync,
+    targetWeekDate,
     clearExternalEvents,
     requestEvents,
   };

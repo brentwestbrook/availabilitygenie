@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { startOfWeek, addDays } from 'date-fns';
 import { CalendarHeader } from '@/components/calendar/CalendarHeader';
 import { CalendarGrid } from '@/components/calendar/CalendarGrid';
@@ -13,7 +13,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertCircle, CheckCircle } from 'lucide-react';
 
 const Index = () => {
-  const [weekStart, setWeekStart] = useState(() => 
+  const [weekStart, setWeekStart] = useState(() =>
     startOfWeek(new Date(), { weekStartsOn: 0 })
   );
 
@@ -30,7 +30,14 @@ const Index = () => {
   } = useCalendarConnections();
 
   // Get events from browser extension
-  const { externalEvents, lastSync, requestEvents } = useExternalCalendar();
+  const { externalEvents, lastSync, requestEvents, targetWeekDate } = useExternalCalendar();
+
+  // When a sync completes, auto-navigate to the week that was viewed in Outlook
+  useEffect(() => {
+    if (targetWeekDate) {
+      setWeekStart(targetWeekDate);
+    }
+  }, [targetWeekDate]);
 
   // Combine OAuth events with external events
   const allEvents = useMemo(() => {

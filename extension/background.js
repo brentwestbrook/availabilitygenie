@@ -24,7 +24,7 @@ console.log('[AG] Service worker started');
 chrome.alarms.create('keepalive', { periodInMinutes: 0.4 });
 chrome.alarms.onAlarm.addListener((alarm) => {
   if (alarm.name === 'keepalive') {
-    // intentional no-op — existence of this listener keeps the worker alive
+    // intentional no-op \u2014 existence of this listener keeps the worker alive
   }
 });
 
@@ -47,10 +47,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message.type === 'OUTLOOK_EVENTS_READY') {
-    // content-outlook.js has returned events \u2014 relay to all Genie tabs
+    // content-outlook.js has returned events \u2014 relay to all Genie tabs,
+    // forwarding weekOf so the app can auto-navigate to the synced week.
     const events = message.events || [];
+    const weekOf = message.weekOf ?? null;
     for (const tabId of genieTabs) {
-      chrome.tabs.sendMessage(tabId, { type: 'RELAY_OUTLOOK_EVENTS', events }).catch(() => {
+      chrome.tabs.sendMessage(tabId, { type: 'RELAY_OUTLOOK_EVENTS', events, weekOf }).catch(() => {
         genieTabs.delete(tabId);
       });
     }

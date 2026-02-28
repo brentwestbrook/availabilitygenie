@@ -23,7 +23,12 @@ chrome.runtime.onMessage.addListener((message) => {
             'Make sure you are on the Calendar view (not Mail) and that events are visible on screen.',
         });
       } else {
-        chrome.runtime.sendMessage({ type: 'OUTLOOK_EVENTS_READY', events });
+        // Derive the week being viewed from the earliest event that has an
+        // explicit ISO date. This is sent to the Genie app so it can
+        // auto-navigate to the correct week.
+        const dates = events.map((e) => e.date).filter(Boolean).sort();
+        const weekOf = dates[0] ?? null;
+        chrome.runtime.sendMessage({ type: 'OUTLOOK_EVENTS_READY', events, weekOf });
       }
     } catch (err) {
       chrome.runtime.sendMessage({
@@ -43,7 +48,7 @@ function readCalendarFromDom() {
   const seen = new Set();
 
   // Time range pattern: "9:30 AM – 10:00 AM" or "9:30 AM to 10:00 AM" (handles -, –, —, "to")
-  const TIME_RANGE_FULL = /(\d{1,2}:\d{2}\s*[AP]M)\s*(?:[-–—]+|\bto\b)\s*(\d{1,2}:\d{2}\s*[AP]M)/i;
+  const TIME_RANGE_FULL = /(\d{1,2}:\d{2}\s*[AP]M)\s*(?:[-\u2013\u2014]+|\bto\b)\s*(\d{1,2}:\d{2}\s*[AP]M)/i;
   const SINGLE_TIME = /\d{1,2}:\d{2}\s*[AP]M/i;
 
   // Day name pattern used to find dates in labels
