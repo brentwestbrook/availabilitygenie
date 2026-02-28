@@ -12,6 +12,7 @@
     "https://outlook.office365.com/*",
     "https://outlook.live.com/*",
     "https://outlook.cloud.microsoft/*",
+    "https://graph.microsoft.com/*",
     "https://availability.brentwestbrook.com/*",
     "http://localhost:*/*"
   ],
@@ -34,8 +35,19 @@
         "https://outlook.live.com/*",
         "https://outlook.cloud.microsoft/*"
       ],
+      "js": ["content-outlook-main.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://outlook.office.com/*",
+        "https://outlook.office365.com/*",
+        "https://outlook.live.com/*",
+        "https://outlook.cloud.microsoft/*"
+      ],
       "js": ["content-outlook.js"],
-      "run_at": "document_idle"
+      "run_at": "document_start"
     }
   ],
   "action": {
