@@ -158,9 +158,11 @@ export function CalendarGrid({
                           key={event.id}
                           className={cn(
                             "absolute inset-x-1 rounded px-1 py-0.5 text-xs overflow-hidden z-10",
-                            event.source === 'google' 
-                              ? "bg-google text-google-foreground" 
-                              : "bg-microsoft text-microsoft-foreground",
+                            event.source === 'google'
+                              ? "bg-google text-google-foreground"
+                              : event.source === 'outlook-bridge'
+                                ? "bg-blue-500 text-white"
+                                : "bg-microsoft text-microsoft-foreground",
                             eventIndex > 0 && "left-1/2"
                           )}
                           style={{ 

@@ -30,7 +30,7 @@ const Index = () => {
   } = useCalendarConnections();
 
   // Get events from browser extension
-  const { externalEvents, lastSync } = useExternalCalendar();
+  const { externalEvents, lastSync, requestEvents } = useExternalCalendar();
 
   // Combine OAuth events with external events
   const allEvents = useMemo(() => {
@@ -99,6 +99,9 @@ const Index = () => {
               onConnectGoogle={connectGoogle}
               onConnectMicrosoft={connectMicrosoft}
               onDisconnect={disconnectConnection}
+              outlookBridgeLastSync={lastSync}
+              outlookBridgeEventCount={externalEvents.length}
+              onReadOutlookCalendar={requestEvents}
             />
             <AvailabilityPanel
               selectedSlots={selectedSlots}
