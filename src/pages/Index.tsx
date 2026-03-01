@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { startOfWeek, addDays } from 'date-fns';
 import { CalendarHeader } from '@/components/calendar/CalendarHeader';
 import { CalendarGrid } from '@/components/calendar/CalendarGrid';
@@ -59,6 +59,14 @@ const Index = () => {
     copyToClipboard,
   } = useAvailabilityText(selectedSlots);
 
+  // Copy text to clipboard first, then clear slots/text only on success
+  const handleCopy = useCallback(async () => {
+    const success = await copyToClipboard();
+    if (success) {
+      clearSelections();
+    }
+  }, [copyToClipboard, clearSelections]);
+
   const selectionRange = getSelectionRange();
 
   return (
@@ -113,7 +121,7 @@ const Index = () => {
             <AvailabilityPanel
               selectedSlots={selectedSlots}
               availabilityText={availabilityText}
-              onCopy={copyToClipboard}
+              onCopy={handleCopy}
               onClear={clearSelections}
               onRemoveSlot={removeSelection}
             />
